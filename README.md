@@ -70,11 +70,39 @@ This page simulates a vintage **Klangfilm/Siemens** broadcasting console.
 
 ---
 
+## 🧬 5. THE ECOSYSTEM (Movement & Modulation)
+
+Avant_lab_V is designed to be alive. Explore these systems to animate your sound:
+
+*   **Ping Generator (Page 2):** A rhythmic impulse engine that strikes the filters. It can run manually, periodically, or using **Euclidean rhythms**.
+*   **Morphing:** You can save the state of your filters into **Presets** (Grid Row 7) and smoothly morph between them over time using the **Time Engine (Page 5)**.
+*   **Sequencers:** Every Tape Track has a dedicated **Event Sequencer** (Grid Row 7) to record and loop your knob movements and button presses.
+
+---
+
 ## 🎹 GRID CHEATSHEET
 
-*   **Rows 1-6 (Top):** Control the 16 Filter Bands (Faders).
+### 🅰️ MAIN VIEW (Pages 1, 2, 3, 4, 6, 9)
+*   **Rows 1-6:** 16 Vertical Faders. Control the gain of each filter band.
+
+### 🅱️ TAPE VIEW (Pages 5-Tape, 7, 8)
+*   **Rows 1-4:** Each row represents a Track (1-4).
+    *   **Left/Right LEDs:** Show Loop Start and End points.
+    *   **Press 1 Key:** Jump to position (Seek).
+    *   **Press 2 Keys:** Define new Loop Start/End points.
+*   **Row 5 (1-4):** **Track Select**. Choose which track the Encoders control.
+*   **Row 5 (6-16):** **Ribbon Controller**. Jump instantly between tape speeds (-2x to +2x).
+*   **Row 6:** **Tape Brake**. Manual pressure effects (Scratch/Slow down).
+
+### 👇 BOTTOM SECTION (Always Active)
 *   **Row 7 (Performance):**
-    *   **1-4:** Sequencers (Record automation for the loops).
-    *   **5-8:** Presets (Short press: Save/Morph. Long press: Clear).
-    *   **9-12:** FX Macros (Kill, Freeze, Warble, Brake).
-    *   **13-16:** Direct Transport controls for Tracks 1-4.
+    *   **1-4:** **Sequencers**. (Click: Rec/Play, Double: Stop, Hold: Clear).
+    *   **5-8:** **Presets**. (Click: Save/Morph, Hold: Clear).
+    *   **9-12:** **FX Macros** (Kill, Freeze, Warble, Brake).
+    *   **13-16:** **Transport** (Direct Rec/Play for Tracks 1-4).
+*   **Row 8 (System):**
+    *   **1:** Momentary Mode Toggle.
+    *   **3:** Randomize Filter Bands.
+    *   **4:** Feedback Swell.
+    *   **6:** Manual Ping Trigger.
+    *   **8-16:** **Page Navigation** (Direct jump to Page 1-9).
