@@ -1,5 +1,5 @@
--- Avant_lab_V lib/graphics.lua | Version 105.1
--- FIX: Mixer Text Spacing Fixed (Removed space before dB)
+-- Avant_lab_V lib/graphics.lua | Version 105.9
+-- FIX: Page 1 LFO Label Position Locked (Identical drawing logic for Shift/No-Shift)
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -94,7 +94,6 @@ local function draw_mixer_view(state, shift)
   screen.level(4); screen.move(64, 8); screen.text_center("SITRAL MIXER")
   
   if not shift then
-     -- [FIX] Removed Space "%.1fdB"
      local vol_db = util.linlin(0, 1, -60, 12, t.vol or 0)
      draw_mixer_params("VOL", string.format("%.1fdB", vol_db), "LOW", string.format("%.1f", t.l_low or 0), "HIGH", string.format("%.1f", t.l_high or 0))
   else
@@ -231,9 +230,8 @@ function Graphics.draw(state)
      local track_title = "TRACK " .. sel
      
      if not shift then
-       -- [FIX] Max Vol +12dB
        local vol_db = util.linlin(0, 1, -60, 12, t.vol or 0)
-       draw_left_e1("VOL", string.format("%.1f dB", vol_db))
+       draw_left_e1("VOL", string.format("%.1fdB", vol_db))
        local speed = t.speed or 1
        local dir_sym = speed < 0 and "<<" or ">>"
        draw_right_param_pair("SPEED", string.format("%s %.2f", dir_sym, math.abs(speed)), "DUB", string.format("%.0f%%", (t.overdub or 0.5)*100))
@@ -283,19 +281,32 @@ function Graphics.draw(state)
      screen.clear()
      screen.level(4); screen.font_size(8); screen.move(0, 8)
      
-     if not shift then
-        local s_name = Scales.list[state.preview_scale_idx].name
-        local root_txt = note_names[params:get("root_note")] or "?"
-        if s_name == state.loaded_scale_name then screen.text("S: " .. s_name .. " (" .. root_txt .. ")") 
-        else screen.level(15); screen.text("LOAD: " .. s_name .. " (" .. root_txt .. ") >") end
-        
-        screen.level(3); screen.move(128, 8); screen.text_right("LFO: " .. string.format("%.2f", params:get("lfo_depth") or 0))
-     else
-        local root_txt = note_names[params:get("root_note")] or "?"
-        screen.level(15); screen.text("ROOT: " .. root_txt)
-        
-        screen.level(3); screen.move(128, 8); screen.text_right("RATE: " .. string.format("%.2f", params:get("lfo_rate") or 0))
+     -- STATIC HEADER (Left)
+     local s_name = Scales.list[state.preview_scale_idx].name
+     local root_txt = note_names[params:get("root_note")] or "?"
+     
+     if s_name == state.loaded_scale_name then 
+        screen.text("S: " .. s_name .. " (" .. root_txt .. ")") 
+     else 
+        screen.level(15); screen.text("LOAD: " .. s_name .. " (" .. root_txt .. ") >") 
      end
+     
+     -- [FIX] STATIC HEADER (Right) - LFO Position Locked
+     -- Logic: Draw value, calculate width, draw label to the left of it.
+     -- This is done identically for both shift/no-shift states to prevent jumping.
+     
+     local lfo_v = string.format("%.2f", params:get("lfo_depth") or 0)
+     local val_w = screen.text_extents(lfo_v)
+     
+     -- 1. Draw Value (Aligned Right)
+     screen.move(128, 8)
+     if shift then screen.level(15) else screen.level(3) end
+     screen.text_right(lfo_v)
+     
+     -- 2. Draw Label (Aligned Left of Value)
+     screen.move(128 - val_w - 2, 8)
+     screen.level(3) -- Label always dim
+     screen.text_right("LFO:")
      
      local floor_y = 60
      for i=1, 16 do
@@ -312,7 +323,7 @@ function Graphics.draw(state)
      
      draw_vertical_divider(); draw_goniometer_block(amp_l, amp_r, params:get("scope_zoom") or 4); 
      
-     local div_x = 88; local col1_x = div_x + 4; local col2_x = div_x + 24
+     local div_x = 84; local col1_x = div_x + 4; local col2_x = div_x + 24
      
      if not shift then
         screen.move(col1_x, 53); screen.level(3); screen.text("FB")
@@ -322,9 +333,11 @@ function Graphics.draw(state)
      else
         screen.move(col1_x, 53); screen.level(3); screen.text("RATE")
         screen.move(col1_x, 60); screen.level(15); screen.text(string.format("%.2f", params:get("lfo_rate") or 0))
+        
+        -- Bright Root in Shift Mode
+        local root_txt_bottom = note_names[params:get("root_note")] or "?"
         screen.move(col2_x, 53); screen.level(3); screen.text("ROOT")
-        local root_txt = note_names[params:get("root_note")] or "?"
-        screen.move(col2_x, 60); screen.level(10); screen.text(root_txt)
+        screen.move(col2_x, 60); screen.level(15); screen.text(root_txt_bottom)
      end
      
      screen.update()
