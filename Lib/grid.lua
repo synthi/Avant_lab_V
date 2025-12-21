@@ -1,8 +1,9 @@
--- Avant_lab_V lib/grid.lua | Version 95.0
--- FIX: Sequencer Logic (Rec/Play/Dub/Stop/Clear), Grid Sensitivity fix
+-- Avant_lab_V lib/grid.lua | Version 106.3
+-- FIX: Added missing 'Scales' import (Fixes Main Sequencer Crash on Preset Recall)
 
 local Grid = {}
 local Loopers = include('lib/loopers')
+local Scales = include('lib/scales') -- [FIX] Added missing dependency
 local g -- Ref
 
 local levels_cache = {}
@@ -100,14 +101,12 @@ function Grid.redraw(state)
 
   for i=1, 4 do -- Sequencers
      local r = rec_slots[i]; local b = 1
-     if r.state == 1 then b = pulse_seq      -- Recording
-     elseif r.state == 2 then b = 15         -- Playing
-     elseif r.state == 4 then b = pulse_dub  -- Overdubbing
-     elseif r.state == 3 then b = 4          -- Stopped
-     end
+     if r.state == 1 then b = pulse_seq 
+     elseif r.state == 2 then b = 15 
+     elseif r.state == 4 then b = pulse_dub 
+     elseif r.state == 3 then b = 4 end
      g:led(i, 7, b)
   end
-  
   for i=1, 4 do -- Presets
      local x = i + 4; local st = presets_status[i]; local b = 2 
      if st==1 then b=6 end; if preset_selected==i then b=15 end; if morph_active and morph_slot == i then b = 15 end
@@ -152,16 +151,20 @@ end
 local function record_event(state, x, y, z, is_tape_context)
   local slots = is_tape_context and state.tape_rec_slots or state.main_rec_slots
   for i=1, 4 do
-    local is_seq_btn = (y == 7 and x >= 1 and x <= 4) 
-    local is_nav_zone = (y == 8 and x >= 8)
-    local is_self_btn = (y == 7 and x == i)
+    local is_seq_btn = (y == 7 and x >= 1 and x <= 4)
+    local is_page_nav = (y == 8 and x >= 8)
     
-    if (slots[i].state == 1 or slots[i].state == 4) and not is_self_btn and not is_nav_zone then 
+    if (slots[i].state == 1 or slots[i].state == 4) and not is_seq_btn and not is_page_nav then 
+       local now = util.time()
        local dt = 0
-       if slots[i].state == 1 then dt = util.time() - slots[i].start_time
-       else dt = (util.time() - slots[i].start_time) % slots[i].duration end
+       if slots[i].state == 1 then 
+          dt = now - (slots[i].start_time or now)
+       else 
+          dt = (now - (slots[i].start_time or now)) % (slots[i].duration or 1) 
+       end
        
        table.insert(slots[i].data, {dt=dt, x=x, y=y, z=z, p=is_tape_context and 7 or 1, tid=state.track_sel})
+       table.sort(slots[i].data, function(a,b) return a.dt < b.dt end)
     end
   end
 end
@@ -218,43 +221,24 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
 
   -- === ROW 7: PERFORMANCE (GLOBAL) ===
   if y == 7 then
-     if x <= 4 then -- Sequencers (UPDATED LOGIC)
+     if x <= 4 then -- Sequencers
         local slot = x; local r = rec_slots[slot]
-        
-        if z==1 then 
-           r.press_time = util.time()
+        if z==1 then r.press_time = util.time()
         elseif z==0 then
            local d = util.time() - r.press_time
-           if d > 1.0 then 
-              -- Long Press: CLEAR
-              r.state = 0; r.data = {}; r.step = 1; r.duration = 0
+           if d > 1.0 then r.state = 0; r.data = {}; r.step = 1; r.duration = 0
            else
-              -- Short Press: Toggle / Dub / Stop Logic
               state.seq_clicks[slot] = (state.seq_clicks[slot] or 0) + 1
               if state.seq_clicks[slot] == 1 then
-                 clock.run(function() 
-                    clock.sleep(0.25)
+                 clock.run(function() clock.sleep(0.25)
                     local clicks = state.seq_clicks[slot]
                     if clicks == 1 then
-                       -- SINGLE CLICK
-                       if r.state == 0 then 
-                          -- Start Recording
-                          r.state = 1; r.data = {}; r.start_time = util.time(); r.step = 1
-                       elseif r.state == 1 then 
-                          -- End Recording -> Play
-                          r.state = 2; r.duration = util.time() - r.start_time
-                       elseif r.state == 2 then 
-                          -- Play -> Overdub (Keep duration)
-                          r.state = 4
-                       elseif r.state == 4 then 
-                          -- Overdub -> Play
-                          r.state = 2
-                       elseif r.state == 3 then 
-                          -- Stopped -> Resume Play
-                          r.state = 2
-                       end
+                       if r.state == 0 then r.state = 1; r.data = {}; r.start_time = util.time(); r.step = 1
+                       elseif r.state == 1 then r.state = 2; r.duration = util.time() - r.start_time
+                       elseif r.state == 2 then r.state = 4
+                       elseif r.state == 4 then r.state = 2 
+                       elseif r.state == 3 then r.state = 2 end
                     elseif clicks == 2 then
-                       -- DOUBLE CLICK -> STOP
                        if r.state ~= 0 then r.state = 3 end
                     end
                     state.seq_clicks[slot] = 0
@@ -279,7 +263,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
            else is_current = (state.main_preset_selected == slot) end
            
            if presets_status[slot] == 0 then
-             -- SAVE
              if is_tape_view then
                 local saved_tracks = {}
                 for i=1,4 do local t = state.tracks[i]; saved_tracks[i] = {speed=t.speed, vol=t.vol, loop_start=t.loop_start, loop_end=t.loop_end, state=t.state, overdub=t.overdub, file_path=t.file_path, l_low=t.l_low, l_high=t.l_high, l_filter=t.l_filter, l_pan=t.l_pan, l_width=t.l_width} end
@@ -292,7 +275,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
              end
              presets_status[slot] = 1
            elseif is_current then
-              -- UPDATE
               if is_tape_view then
                 local saved_tracks = {}
                 for i=1,4 do local t = state.tracks[i]; saved_tracks[i] = {speed=t.speed, vol=t.vol, loop_start=t.loop_start, loop_end=t.loop_end, state=t.state, overdub=t.overdub, file_path=t.file_path, l_low=t.l_low, l_high=t.l_high, l_filter=t.l_filter, l_pan=t.l_pan, l_width=t.l_width} end
@@ -302,7 +284,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                 presets_data[slot] = { gains = saved_gains, q = params:get("global_q"), scale_idx = params:get("scale_idx"), root_note = params:get("root_note"), feedback = params:get("feedback") }
               end
            else
-              -- RECALL
               if is_tape_view then
                  state.morph_tape_src = {}; for i=1,4 do state.morph_tape_src[i] = {speed=state.tracks[i].speed, vol=state.tracks[i].vol, l_low=state.tracks[i].l_low, l_high=state.tracks[i].l_high, l_filter=state.tracks[i].l_filter, l_pan=state.tracks[i].l_pan, l_width=state.tracks[i].l_width} end
                  state.morph_tape_active = true; state.morph_tape_slot = slot; state.morph_tape_start_time = util.time(); state.tape_preset_selected = slot
@@ -311,11 +292,20 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                  for i=1,16 do state.morph_main_src[i] = state.bands_gain[i] or params:get("gain_"..i) or -60 end
                  state.morph_main_src_q = params:get("global_q")
                  state.morph_main_src_fb = params:get("feedback")
-                 state.morph_main_src_freqs = get_current_freqs()
+                 
+                 state.morph_main_src_freqs = {}
+                 for i=1, 16 do table.insert(state.morph_main_src_freqs, params:get("freq_"..i)) end
+                 
                  state.morph_main_active = true; state.morph_main_slot = slot; state.morph_main_start_time = util.time(); state.main_preset_selected = slot
                  
                  local target = presets_data[slot]
-                 if target and target.scale_idx then state.preview_scale_idx = target.scale_idx; if Scales.list[target.scale_idx] then state.loaded_scale_name = Scales.list[target.scale_idx].name end end
+                 if target and target.scale_idx then 
+                    state.preview_scale_idx = target.scale_idx
+                    -- [FIX] Safe check for Scales
+                    if Scales and Scales.list and Scales.list[target.scale_idx] then 
+                        state.loaded_scale_name = Scales.list[target.scale_idx].name 
+                    end 
+                 end
               end
            end
         elseif z == 0 then
@@ -326,11 +316,19 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                  state.morph_main_src = {}; for i=1,16 do state.morph_main_src[i] = state.bands_gain[i] or -60 end
                  state.morph_main_src_q = params:get("global_q")
                  state.morph_main_src_fb = params:get("feedback")
-                 state.morph_main_src_freqs = get_current_freqs()
+                 
+                 state.morph_main_src_freqs = {}
+                 for i=1, 16 do table.insert(state.morph_main_src_freqs, params:get("freq_"..i)) end
+                 
                  state.morph_main_active = true; state.morph_main_slot = prev; state.morph_main_start_time = util.time(); state.main_preset_selected = prev 
                  
                  local target = presets_data[prev]
-                 if target and target.scale_idx then state.preview_scale_idx = target.scale_idx; if Scales.list[target.scale_idx] then state.loaded_scale_name = Scales.list[target.scale_idx].name end end
+                 if target and target.scale_idx then 
+                    state.preview_scale_idx = target.scale_idx
+                    if Scales and Scales.list and Scales.list[target.scale_idx] then 
+                        state.loaded_scale_name = Scales.list[target.scale_idx].name 
+                    end 
+                 end
               end
            end
            local d = util.time() - preset_press_time[slot]
@@ -339,7 +337,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         return
      end
      
-     if x >= 9 and x <= 12 then -- FX
+     if x >= 9 and x <= 12 then 
         local fx_type = ""; if x == 9 then fx_type = "kill" elseif x == 10 then fx_type = "freeze" elseif x == 11 then fx_type = "warble" elseif x == 12 then fx_type = "brake" end
         if z == 1 then
            if fx_type == "kill" then state.fx_memory["kill"] = params:get("pre_lpf"); params:set("pre_lpf", 150)
@@ -366,7 +364,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         return
      end
      
-     if x >= 13 and x <= 16 then -- Transport
+     if x >= 13 and x <= 16 then 
         local trk = x - 12
         if z == 1 then
            state.transport_press_time[trk] = util.time()
@@ -382,7 +380,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
            else
               local now = util.time()
               local dt = now - state.transport_timers[trk]
-              
               if dt < 0.3 then
                  state.tracks[trk].state = 5; Loopers.refresh(trk, state)
               else
@@ -409,24 +406,17 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
      end
   end
 
-  -- === TAPE VIEW INTERACTION (ROWS 1-4) ===
-  -- [FIX] Sensitivity Check: Wait a moment to see if multiple keys are pressed
   if is_tape_view and y <= 4 then
      local trk = y
      if z == 1 then 
         state.grid_keys_held[trk][x] = true
-        
         clock.run(function()
-           clock.sleep(0.06) -- Wait 60ms for roll detection
-           
-           -- Recalculate count after delay
+           clock.sleep(0.06) 
            local count = 0; local min_x = 17; local max_x = 0
            for k, v in pairs(state.grid_keys_held[trk]) do 
               if v then count = count + 1; if k < min_x then min_x = k end; if k > max_x then max_x = k end end 
            end
-           
            if count == 1 then
-              -- Single Press -> Seek (Only if it was this key)
               if state.grid_keys_held[trk][x] then
                  if state.grid_momentary_mode then
                     state.stutter_memory[trk] = {start = state.tracks[trk].loop_start, end_ = state.tracks[trk].loop_end}
@@ -439,17 +429,14 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                  end
               end
            elseif count >= 2 then
-              -- Multi Press -> Set Loop
               state.tracks[trk].loop_start = (min_x - 1) / 15
               state.tracks[trk].loop_end = (max_x - 1) / 15
               Loopers.refresh(trk, state)
            end
         end)
-        
      elseif z == 0 then 
         state.grid_keys_held[trk][x] = nil 
         if state.grid_momentary_mode and state.stutter_memory[trk] then
-           -- Only release stutter if no keys left? Or just release.
            local count = 0
            for k, v in pairs(state.grid_keys_held[trk]) do if v then count = count + 1 end end
            if count == 0 then
@@ -465,7 +452,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
      if x <= 4 and z == 1 then state.track_sel = x end
      if x >= 6 then
         local target = target_track or state.track_sel
-        
         if z==1 then
            state.ribbon_press_time = util.time()
            state.ribbon_start_speed = state.tracks[target].speed or 1.0
@@ -496,7 +482,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
      return
   end
   
-  -- === MAIN VIEW INTERACTION (ROWS 1-6) ===
   if not is_tape_view and y <= 6 then
      local h = 7 - y; local db = util.linlin(1, 6, -60, 0, h); if h == 1 then db = -60 end
      if z==1 then
