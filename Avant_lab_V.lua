@@ -1,5 +1,5 @@
--- Avant_lab_V.lua | Version 107.3
--- FIX: Added Monitor Source Parameter
+-- Avant_lab_V.lua | Version 107.5
+-- FIX: Reordered Functions (Defined before Init to prevent nil error)
 
 engine.name = 'Avant_lab_V'
 
@@ -19,237 +19,14 @@ local MAX_BUFFER_SEC = 60.0
 
 state = Globals.new()
 
-function init()
-  audio.level_adc_cut(1)
-  
-  if util.file_exists(_path.data .. "Avant_lab_V") == false then 
-      util.make_dir(_path.data .. "Avant_lab_V") 
-  end
-  if util.file_exists(_path.audio .. "Avant_lab_V") == false then 
-      util.make_dir(_path.audio .. "Avant_lab_V") 
-  end
-  if util.file_exists(_path.audio .. "Avant_lab_V/snapshots") == false then 
-      util.make_dir(_path.audio .. "Avant_lab_V/snapshots") 
-  end
-  
-  params:add_separator("AVANT_LAB_V")
-  
-  -- 1. GLOBAL & MIX
-  params:add_group("GLOBAL / MIX", 12) -- Increased count
-  params:add{type = "control", id = "feedback", name = "Feedback", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) engine.feedback(x) end}
-  params:add{type = "control", id = "global_q", name = "Global Q", controlspec = controlspec.new(0.5, 80.0, 'exp', 0, 1.0), action = function(x) engine.global_q(x) end}
-  params:add{type = "control", id = "reverb_mix", name = "Reverb Mix", controlspec = controlspec.new(0, 1, 'lin', 0.001, 1.0), action = function(x) engine.reverb_mix(x) end}
-  params:add{type = "control", id = "system_dirt", name = "System Dirt", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.0), action = function(x) engine.system_dirt(x) end}
-  
-  params:add{
-    type = "control", 
-    id = "main_mon", 
-    name = "Main Monitor", 
-    controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.833), 
-    formatter = function(param)
-        local val = param:get()
-        local db = util.linlin(0, 1, -60, 12, val)
-        return string.format("%.1f dB", db)
-    end,
-    action = function(x) engine.main_mon(x) end
-  }
-  
-  -- [FIX] MONITOR SOURCE SELECTOR
-  params:add{type = "option", id = "main_source", name = "Monitor Source",
-    options = {"Clean In", "Post Tape", "Post Filter", "Post Reverb"},
-    default = 4,
-    action = function(x) engine.main_source(x-1) end
-  }
-  
-  params:add{type = "control", id = "fader_slew", name = "Fader Slew", controlspec = controlspec.new(0.01, 10.0, 'exp', 0.01, 0.05, "s"), action = function(x) engine.fader_lag(x) end}
-  params:add{type = "control", id = "scope_zoom", name = "Scope Zoom", controlspec = controlspec.new(1, 10, 'lin', 0.1, 4)}
-  params:add{type = "option", id = "gonio_source", name = "Scope Source", options = {"Pre-Master", "Post-Master"}, default = 2, action = function(x) engine.gonio_source(x-1) end}
-  params:add{type = "option", id = "rec_behavior", name = "Rec Behavior", options = {"Rec->Play", "Rec->Dub"}, default = 2}
-  params:add{type = "option", id = "load_behavior_reels", name = "Load: Reels", options = {"Stop", "Play"}, default = 1}
-  params:add{type = "option", id = "load_behavior_seqs", name = "Load: Seqs", options = {"Stop", "Play"}, default = 2}
+-- [HELPER FUNCTIONS DEFINED BEFORE INIT]
 
-  -- 2. TIME ENGINES
-  params:add_group("TIME ENGINES", 4)
-  params:add{type = "control", id = "seq_rate_main", name = "Main Seq Rate", controlspec = controlspec.new(-2.0, 2.0, 'lin', 0.01, 0.0)}
-  params:add{type = "control", id = "preset_morph_main", name = "Main Morph", controlspec = controlspec.new(0.01, 60.0, 'exp', 0.01, 2.0, "s")}
-  params:add{type = "control", id = "seq_rate_tape", name = "Tape Seq Rate", controlspec = controlspec.new(-2.0, 2.0, 'lin', 0.01, 0.0)}
-  params:add{type = "control", id = "preset_morph_tape", name = "Tape Morph", controlspec = controlspec.new(0.01, 60.0, 'exp', 0.01, 2.0, "s")}
-
-  -- 3. INPUT
-  params:add_group("INPUT", 3)
-  params:add{type = "control", id = "input_amp", name = "Input Level", controlspec = controlspec.new(0, 2, 'lin', 0.001, 1.0), action = function(x) engine.input_amp(x) end}
-  params:add{type = "control", id = "noise_amp", name = "Noise Level", controlspec = controlspec.new(0, 2, 'lin', 0.001, 0.0), action = function(x) engine.noise_amp(x) end}
-  params:add{type = "option", id = "noise_type", name = "Noise Type", options = {"Pink", "White"}, action = function(x) engine.noise_type(x-1) end}
-
-  -- 4. PING
-  params:add_group("PING GENERATOR", 10)
-  params:add{type = "option", id = "ping_active", name = "Generator", options = {"Off", "On"}, default = 1, action = function(x) engine.ping_active(x-1) end}
-  params:add{type = "option", id = "ping_mode", name = "Ping Mode", options = {"Internal (Free)", "Euclidean (Sync)"}, default = 1, action = function(x) engine.ping_mode(x-1) end}
-  params:add{type = "control", id = "ping_amp", name = "Ping Level", controlspec = controlspec.new(0, 2.0, 'lin', 0.01, 1.0), action = function(x) engine.ping_amp(x) end}
-  params:add{type = "control", id = "ping_timbre", name = "Mix (Low/High)", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) engine.ping_timbre(x) end}
-  params:add{type = "control", id = "ping_jitter", name = "Jitter (Rhythm)", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) engine.ping_jitter(x) end}
-  params:add{type = "control", id = "ping_rate", name = "Int Rate (Hz)", controlspec = controlspec.new(0.125, 20.0, 'exp', 0.01, 1.0, "Hz"), action = function(x) engine.ping_rate(x) end}
-  params:add{type = "option", id = "ping_div", name = "Euc Division", options = {"1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/64", "1/128", "1/256"}, default = 3}
-  params:add{type = "number", id = "ping_steps", name = "Euc Steps", min = 1, max = 32, default = 16, action = function(x) update_ping_pattern() end}
-  params:add{type = "number", id = "ping_hits", name = "Euc Hits", min = 0, max = 32, default = 4, action = function(x) update_ping_pattern() end}
-  params:add{type = "trigger", id = "ping_manual", name = "Manual Trigger", action = function() engine.ping_manual(1) end}
-
-  -- 5. RING MOD
-  params:add_group("RING MODULATOR", 5)
-  params:add{type = "control", id = "rm_drive", name = "RM Drive", controlspec = controlspec.new(0, 24.0, 'lin', 0.1, 6.0, "dB"), action = function(x) engine.rm_drive(x) end}
-  params:add{type = "control", id = "rm_freq", name = "Carrier Freq", controlspec = controlspec.new(0.1, 4000.0, 'exp', 0.1, 100.0, "Hz"), action = function(x) engine.rm_freq(x) end}
-  params:add{type = "option", id = "rm_wave", name = "Carrier Wave", options = {"Sine", "Tri", "Square", "Saw"}, default = 1, action = function(x) engine.rm_wave(x-1) end}
-  params:add{type = "control", id = "rm_mix", name = "Dry/Wet Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) engine.rm_mix(x) end}
-  params:add{type = "control", id = "rm_instability", name = "Instability", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) engine.rm_instability(x) end}
-
-  -- 6. FILTER BANK
-  params:add_group("FILTER BANK", 7)
-  params:add{type = "control", id = "filter_mix", name = "Filter Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 1.0), action = function(x) engine.filter_mix(x) end}
-  params:add{type = "control", id = "pre_hpf", name = "Low Cut (HPF)", controlspec = controlspec.new(20, 999, 'exp', 0, 20, "Hz"), action = function(x) engine.pre_hpf(x) end}
-  params:add{type = "control", id = "pre_lpf", name = "High Cut (LPF)", controlspec = controlspec.new(150, 20000, 'exp', 0, 20000, "Hz"), action = function(x) engine.pre_lpf(x) end}
-  params:add{type = "control", id = "stabilizer", name = "Stabilizer", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.5), action = function(x) engine.stabilizer(x) end}
-  params:add{type = "control", id = "crossfeed", name = "Cross Feed", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.25), action = function(x) engine.cross_feed(x) end}
-  params:add{type = "control", id = "spread", name = "Spread (Odd/Even)", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.75), action = function(x) engine.spread(x) end}
-  params:add{type = "control", id = "filter_drift", name = "Filter Drift", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.0), action = function(x) engine.filter_drift(x) end}
-
-  -- 7. LFO
-  params:add_group("LFO MODULATION", 3)
-  params:add{type = "control", id = "lfo_depth", name = "Global Intensity", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) engine.lfo_depth(x) end}
-  params:add{type = "control", id = "lfo_rate", name = "Global Rate", controlspec = controlspec.new(0.01, 2.0, 'exp', 0.01, 0.1, "Hz"), action = function(x) engine.lfo_rate(x) end}
-  params:add{type = "control", id = "lfo_min_db", name = "LFO Target DB", controlspec = controlspec.new(-90, 0, 'lin', 1, -60, "dB"), action = function(x) engine.lfo_min_db(x) end}
-
-  -- 8. MAIN TAPE ECHO
-  params:add_group("MAIN TAPE ECHO", 7)
-  params:add{type = "control", id = "tape_mix", name = "Tape Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 1.0), action = function(x) engine.tape_mix(x) end}
-  params:add{type = "control", id = "tape_time", name = "Time", controlspec = controlspec.new(0, 4.0, 'lin', 0.01, 0.0, "s"), action = function(x) engine.tape_time(x) end}
-  params:add{type = "control", id = "tape_fb", name = "Feedback", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) engine.tape_fb(x) end}
-  params:add{type = "control", id = "tape_sat", name = "Saturation", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.3), action = function(x) engine.tape_sat(x) end}
-  params:add{type = "control", id = "tape_wow", name = "Wow (Slow)", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.11), action = function(x) engine.tape_wow(x) end}
-  params:add{type = "control", id = "tape_flutter", name = "Flutter (Fast)", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.08), action = function(x) engine.tape_flutter(x) end}
-  params:add{type = "control", id = "tape_erosion", name = "Erosion", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.18), action = function(x) engine.tape_erosion(x) end}
-  -- tape_brake removed
-
-  -- 9. TAPE LOOPERS (1-4)
-  for i=1, 4 do
-    params:add_group("TAPE TRACK " .. i, 15)
-    params:add{type = "control", id = "l"..i.."_speed", name = "Speed", controlspec = controlspec.new(-2.0, 2.0, 'lin', 0.01, 1.0), action = function(x) state.tracks[i].speed = x; Loopers.refresh(i, state) end}
-    params:add{type = "control", id = "l"..i.."_vol", name = "Volume", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.9), action = function(x) state.tracks[i].vol = x; Loopers.refresh(i, state) end}
-    params:add{type = "control", id = "l"..i.."_dub", name = "Overdub", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 1.0), action = function(x) state.tracks[i].overdub = x; Loopers.refresh(i, state) end}
-    params:add{type = "control", id = "l"..i.."_deg", name = "Degrade", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) state.tracks[i].wow_macro = x; Loopers.refresh(i, state) end}
-    params:add{type = "control", id = "l"..i.."_start", name = "Start Point", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) state.tracks[i].loop_start = x; Loopers.refresh(i, state) end}
-    params:add{type = "control", id = "l"..i.."_end", name = "End Point", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 1.0), action = function(x) state.tracks[i].loop_end = x; Loopers.refresh(i, state) end}
-    params:add{type = "option", id = "l"..i.."_src", name = "Input Source", options = SRC_OPTIONS, default = 1, action = function(x) state.tracks[i].src_sel = x - 1; Loopers.refresh(i, state) end}
-    params:add{type = "control", id = "l"..i.."_rec_lvl", name = "Input Level", controlspec = controlspec.new(0, 2.0, 'lin', 0.001, 1.0), action = function(x) state.tracks[i].rec_level = x end}
-    params:add{type = "control", id = "l"..i.."_aux", name = "Aux Send", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) state.tracks[i].aux_send = x; Loopers.refresh(i, state) end}
-    params:add{type = "control", id = "l"..i.."_xfade", name = "Crossfade", controlspec = controlspec.new(0.001, 1.0, 'exp', 0.001, 0.05, "s"), action = function(x) state.tracks[i].xfade = x; Loopers.refresh(i, state) end}
-    
-    -- [NEW] Mixer Params
-    params:add{type = "control", id = "l"..i.."_low", name = "Mixer Low", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0, "dB"), action = function(x) state.tracks[i].l_low = x; Loopers.refresh(i, state) end}
-    params:add{type = "control", id = "l"..i.."_high", name = "Mixer High", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0, "dB"), action = function(x) state.tracks[i].l_high = x; Loopers.refresh(i, state) end}
-    params:add{type = "control", id = "l"..i.."_filter", name = "Mixer Filter", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.5), action = function(x) state.tracks[i].l_filter = x; Loopers.refresh(i, state) end}
-    params:add{type = "control", id = "l"..i.."_pan", name = "Mixer Pan", controlspec = controlspec.new(-1, 1, 'lin', 0.01, 0), action = function(x) state.tracks[i].l_pan = x; Loopers.refresh(i, state) end}
-    params:add{type = "control", id = "l"..i.."_width", name = "Mixer Width", controlspec = controlspec.new(0, 2, 'lin', 0.01, 1), action = function(x) state.tracks[i].l_width = x; Loopers.refresh(i, state) end}
-  end
-
-  -- 10. BANDS
-  params:add_group("BANDS SETUP", 34) 
-  local scale_options = {"Default"}
-  if Scales and Scales.names then scale_options = Scales.names end
-  params:add{type = "option", id = "scale_idx", name = "Scale Type", options = scale_options, default = 1, action = function(x) load_scale(x); state.preview_scale_idx = x end}
-  params:add{type = "option", id = "root_note", name = "Scale Root", options = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"}, default = 1, action = function(x) load_scale(params:get("scale_idx")) end}
-  
+function get_current_freqs()
+  local freqs = {}
   for i=1, 16 do
-    local default_freq = 100
-    if Scales and Scales.list and Scales.list[1] and Scales.list[1].data then default_freq = Scales.list[1].data[i] end
-    params:add{type = "control", id = "gain_"..i, name = "Band "..i.." Gain", controlspec = controlspec.new(-60, 0, 'lin', 0.1, -60, "dB"), action = function(x) engine.band_gain(i-1, x); state.bands_gain[i] = x end}
-    params:add{type = "control", id = "freq_"..i, name = "Band "..i.." Freq", controlspec = controlspec.new(20, 12000, 'exp', 0, default_freq, "Hz"), action = function(x) engine.band_freq(i-1, x) end}
+     table.insert(freqs, params:get("freq_"..i))
   end
-  
-  -- [NEW] TAPE LIBRARY GROUP
-  params:add_group("TAPE LIBRARY", 5)
-  params:add{type = "trigger", id = "save_all_tapes", name = "Save All Reels", action = function() 
-     for i=1,4 do 
-        local len = state.tracks[i].rec_len or 0
-        if len > 0 then
-            local name = _path.audio .. "Avant_lab_V/reel_" .. i .. "_" .. os.date("%y%m%d%H%M") .. ".wav"
-            engine.buffer_write(i, name, len)
-            state.tape_filenames[i] = name:match("^.+/(.+)$")
-            state.tape_msg_timers[i] = util.time() + 2.0
-            state.tracks[i].is_dirty = false 
-            state.tracks[i].file_path = name
-        end
-     end
-  end}
-  params:add{type = "file", id = "load_reel_1", name = "Load Reel 1", path = _path.audio, action = function(f) Loopers.load_file(1, f, state) end}
-  params:add{type = "file", id = "load_reel_2", name = "Load Reel 2", path = _path.audio, action = function(f) Loopers.load_file(2, f, state) end}
-  params:add{type = "file", id = "load_reel_3", name = "Load Reel 3", path = _path.audio, action = function(f) Loopers.load_file(3, f, state) end}
-  params:add{type = "file", id = "load_reel_4", name = "Load Reel 4", path = _path.audio, action = function(f) Loopers.load_file(4, f, state) end}
-  
-  params:add_separator("END OF AVANT_LAB_V")
-
-  -- INIT
-  Grid.init(state, g)
-  
-  local p_l = poll.set("amp_l"); if p_l then p_l.time = 0.05; p_l.callback = function(v) state.amp_l = v end; p_l:start() end
-  local p_r = poll.set("amp_r"); if p_r then p_r.time = 0.05; p_r.callback = function(v) state.amp_r = v end; p_r:start() end
-  for i=1, 16 do local pb = poll.set("b"..(i-1)); if pb then pb.time = 0.05; pb.callback = function(val) state.band_levels[i] = val end; pb:start() end end
-  
-  for i=1, 4 do
-    local pp = poll.set("pos"..i)
-    if pp then
-      pp.time = 0.05
-      pp.callback = function(val) 
-         local t = state.tracks[i]
-         local len = t.rec_len or 0
-         if len > 0.1 then
-            local buffer_ratio = len / MAX_BUFFER_SEC
-            if buffer_ratio > 0.0001 then
-                local norm_pos = val / buffer_ratio
-                state.tracks[i].play_pos = util.clamp(norm_pos, 0, 1)
-            else state.tracks[i].play_pos = 0 end
-         else state.tracks[i].play_pos = 0 end
-      end
-      pp:start()
-    end
-  end
-  
-  local screen_timer = metro.init()
-  screen_timer.time = 1/30
-  screen_timer.event = function() redraw() end
-  screen_timer:start()
-  
-  local grid_timer = metro.init()
-  grid_timer.time = 1/30
-  grid_timer.event = function() Grid.redraw(state) end
-  grid_timer:start()
-  
-  local ping_timer = clock.run(ping_tick)
-  
-  local update_timer = metro.init()
-  update_timer.time = 0.05
-  update_timer.event = function() 
-    update_morph_main() 
-    update_morph_tape()
-  end
-  update_timer:start()
-  
-  params.action_write = function(filename, name, number) Storage.save_data(state, number) end
-  params.action_read = function(filename, silent, number) Storage.load_data(state, number) end
-  
-  update_ping_pattern()
-  params:bang()
-  
-  for i=1,4 do
-    clock.run(function() rec_play_tick_main(i) end)
-    clock.run(function() rec_play_tick_tape(i) end)
-  end
-end
-
-function redraw()
-  if state.file_selector_active then return end
-  screen.clear()
-  Graphics.draw(state)
-  screen.update()
+  return freqs
 end
 
 function update_ping_pattern()
@@ -401,6 +178,300 @@ function update_morph_tape()
         end
      end
   end
+end
+
+function ping_tick()
+  while true do
+    local mode = params:get("ping_mode")
+    if mode == 2 and (params:get("ping_active") == 2) and params:get("ping_steps") > 0 then
+      state.ping_step_counter = (state.ping_step_counter or 0) % params:get("ping_steps") + 1
+      if state.ping_pattern[state.ping_step_counter] then engine.ping_sequence(1) end
+    end
+    clock.sync(DIV_VALUES[params:get("ping_div") or 3])
+  end
+end
+
+function rec_play_tick_main(slot)
+    while true do
+      local r = state.main_rec_slots[slot]
+      if r.state ~= 2 and r.state ~= 4 then clock.sleep(0.1) 
+      else
+         local event = r.data[r.step]
+         if event then
+           local rate = 2 ^ params:get("seq_rate_main")
+           if rate == 0 then rate = 0.001 end 
+           local next_time = 0
+           if r.step < #r.data then next_time = (r.data[r.step+1].dt - event.dt) / rate
+           else next_time = (r.duration - event.dt) / rate end
+           
+           if next_time < 0 then next_time = 0 end
+           
+           if event.x and event.y and event.z then
+              Grid.key(event.x, event.y, event.z, state, engine, 1) 
+           end
+           if next_time > 0 then clock.sleep(next_time) end
+           r.step = r.step + 1; if r.step > #r.data then r.step = 1 end
+         else clock.sleep(0.1) end
+      end
+    end
+end
+
+function rec_play_tick_tape(slot)
+    while true do
+      local r = state.tape_rec_slots[slot]
+      if r.state ~= 2 and r.state ~= 4 then clock.sleep(0.1) 
+      else
+         local event = r.data[r.step]
+         if event then
+           local rate = 2 ^ params:get("seq_rate_tape")
+           if rate == 0 then rate = 0.001 end 
+           local next_time = 0
+           if r.step < #r.data then next_time = (r.data[r.step+1].dt - event.dt) / rate
+           else next_time = (r.duration - event.dt) / rate end
+           
+           if next_time < 0 then next_time = 0 end
+           
+           if event.x and event.y and event.z then
+              Grid.key(event.x, event.y, event.z, state, engine, 7, event.tid)
+           end
+           if next_time > 0 then clock.sleep(next_time) end
+           r.step = r.step + 1; if r.step > #r.data then r.step = 1 end
+         else clock.sleep(0.1) end
+      end
+    end
+end
+
+-- [INIT FUNCTION]
+function init()
+  audio.level_adc_cut(1)
+  
+  if util.file_exists(_path.data .. "Avant_lab_V") == false then 
+      util.make_dir(_path.data .. "Avant_lab_V") 
+  end
+  if util.file_exists(_path.audio .. "Avant_lab_V") == false then 
+      util.make_dir(_path.audio .. "Avant_lab_V") 
+  end
+  if util.file_exists(_path.audio .. "Avant_lab_V/snapshots") == false then 
+      util.make_dir(_path.audio .. "Avant_lab_V/snapshots") 
+  end
+  
+  params:add_separator("AVANT_LAB_V")
+  
+  -- 1. GLOBAL & MIX
+  params:add_group("GLOBAL / MIX", 12) 
+  params:add{type = "control", id = "feedback", name = "Feedback", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) engine.feedback(x) end}
+  params:add{type = "control", id = "global_q", name = "Global Q", controlspec = controlspec.new(0.5, 80.0, 'exp', 0, 1.0), action = function(x) engine.global_q(x) end}
+  params:add{type = "control", id = "reverb_mix", name = "Reverb Mix", controlspec = controlspec.new(0, 1, 'lin', 0.001, 1.0), action = function(x) engine.reverb_mix(x) end}
+  params:add{type = "control", id = "system_dirt", name = "System Dirt", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.0), action = function(x) engine.system_dirt(x) end}
+  
+  params:add{
+    type = "control", 
+    id = "main_mon", 
+    name = "Main Monitor", 
+    controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.833), 
+    formatter = function(param)
+        local val = param:get()
+        local db = util.linlin(0, 1, -60, 12, val)
+        return string.format("%.1f dB", db)
+    end,
+    action = function(x) engine.main_mon(x) end
+  }
+  
+  params:add{type = "option", id = "main_source", name = "Monitor Source",
+    options = {"Clean In", "Post Tape", "Post Filter", "Post Reverb"},
+    default = 4,
+    action = function(x) engine.main_source(x-1) end
+  }
+  
+  params:add{type = "control", id = "fader_slew", name = "Fader Slew", controlspec = controlspec.new(0.01, 10.0, 'exp', 0.01, 0.05, "s"), action = function(x) engine.fader_lag(x) end}
+  params:add{type = "control", id = "scope_zoom", name = "Scope Zoom", controlspec = controlspec.new(1, 10, 'lin', 0.1, 4)}
+  params:add{type = "option", id = "gonio_source", name = "Scope Source", options = {"Pre-Master", "Post-Master"}, default = 2, action = function(x) engine.gonio_source(x-1) end}
+  params:add{type = "option", id = "rec_behavior", name = "Rec Behavior", options = {"Rec->Play", "Rec->Dub"}, default = 2}
+  params:add{type = "option", id = "load_behavior_reels", name = "Load: Reels", options = {"Stop", "Play"}, default = 1}
+  params:add{type = "option", id = "load_behavior_seqs", name = "Load: Seqs", options = {"Stop", "Play"}, default = 2}
+
+  -- 2. TIME ENGINES
+  params:add_group("TIME ENGINES", 4)
+  params:add{type = "control", id = "seq_rate_main", name = "Main Seq Rate", controlspec = controlspec.new(-2.0, 2.0, 'lin', 0.01, 0.0)}
+  params:add{type = "control", id = "preset_morph_main", name = "Main Morph", controlspec = controlspec.new(0.01, 60.0, 'exp', 0.01, 2.0, "s")}
+  params:add{type = "control", id = "seq_rate_tape", name = "Tape Seq Rate", controlspec = controlspec.new(-2.0, 2.0, 'lin', 0.01, 0.0)}
+  params:add{type = "control", id = "preset_morph_tape", name = "Tape Morph", controlspec = controlspec.new(0.01, 60.0, 'exp', 0.01, 2.0, "s")}
+
+  -- 3. INPUT
+  params:add_group("INPUT", 3)
+  params:add{type = "control", id = "input_amp", name = "Input Level", controlspec = controlspec.new(0, 2, 'lin', 0.001, 1.0), action = function(x) engine.input_amp(x) end}
+  params:add{type = "control", id = "noise_amp", name = "Noise Level", controlspec = controlspec.new(0, 2, 'lin', 0.001, 0.0), action = function(x) engine.noise_amp(x) end}
+  params:add{type = "option", id = "noise_type", name = "Noise Type", options = {"Pink", "White"}, action = function(x) engine.noise_type(x-1) end}
+
+  -- 4. PING
+  params:add_group("PING GENERATOR", 10)
+  params:add{type = "option", id = "ping_active", name = "Generator", options = {"Off", "On"}, default = 1, action = function(x) engine.ping_active(x-1) end}
+  params:add{type = "option", id = "ping_mode", name = "Ping Mode", options = {"Internal (Free)", "Euclidean (Sync)"}, default = 1, action = function(x) engine.ping_mode(x-1) end}
+  params:add{type = "control", id = "ping_amp", name = "Ping Level", controlspec = controlspec.new(0, 2.0, 'lin', 0.01, 1.0), action = function(x) engine.ping_amp(x) end}
+  params:add{type = "control", id = "ping_timbre", name = "Mix (Low/High)", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) engine.ping_timbre(x) end}
+  params:add{type = "control", id = "ping_jitter", name = "Jitter (Rhythm)", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) engine.ping_jitter(x) end}
+  params:add{type = "control", id = "ping_rate", name = "Int Rate (Hz)", controlspec = controlspec.new(0.125, 20.0, 'exp', 0.01, 1.0, "Hz"), action = function(x) engine.ping_rate(x) end}
+  params:add{type = "option", id = "ping_div", name = "Euc Division", options = {"1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/64", "1/128", "1/256"}, default = 3}
+  params:add{type = "number", id = "ping_steps", name = "Euc Steps", min = 1, max = 32, default = 16, action = function(x) update_ping_pattern() end}
+  params:add{type = "number", id = "ping_hits", name = "Euc Hits", min = 0, max = 32, default = 4, action = function(x) update_ping_pattern() end}
+  params:add{type = "trigger", id = "ping_manual", name = "Manual Trigger", action = function() engine.ping_manual(1) end}
+
+  -- 5. RING MOD
+  params:add_group("RING MODULATOR", 5)
+  params:add{type = "control", id = "rm_drive", name = "RM Drive", controlspec = controlspec.new(0, 24.0, 'lin', 0.1, 6.0, "dB"), action = function(x) engine.rm_drive(x) end}
+  params:add{type = "control", id = "rm_freq", name = "Carrier Freq", controlspec = controlspec.new(0.1, 4000.0, 'exp', 0.1, 100.0, "Hz"), action = function(x) engine.rm_freq(x) end}
+  params:add{type = "option", id = "rm_wave", name = "Carrier Wave", options = {"Sine", "Tri", "Square", "Saw"}, default = 1, action = function(x) engine.rm_wave(x-1) end}
+  params:add{type = "control", id = "rm_mix", name = "Dry/Wet Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) engine.rm_mix(x) end}
+  params:add{type = "control", id = "rm_instability", name = "Instability", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) engine.rm_instability(x) end}
+
+  -- 6. FILTER BANK
+  params:add_group("FILTER BANK", 7)
+  params:add{type = "control", id = "filter_mix", name = "Filter Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 1.0), action = function(x) engine.filter_mix(x) end}
+  params:add{type = "control", id = "pre_hpf", name = "Low Cut (HPF)", controlspec = controlspec.new(20, 999, 'exp', 0, 20, "Hz"), action = function(x) engine.pre_hpf(x) end}
+  params:add{type = "control", id = "pre_lpf", name = "High Cut (LPF)", controlspec = controlspec.new(150, 20000, 'exp', 0, 20000, "Hz"), action = function(x) engine.pre_lpf(x) end}
+  params:add{type = "control", id = "stabilizer", name = "Stabilizer", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.5), action = function(x) engine.stabilizer(x) end}
+  params:add{type = "control", id = "crossfeed", name = "Cross Feed", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.25), action = function(x) engine.cross_feed(x) end}
+  params:add{type = "control", id = "spread", name = "Spread (Odd/Even)", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.75), action = function(x) engine.spread(x) end}
+  params:add{type = "control", id = "filter_drift", name = "Filter Drift", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.0), action = function(x) engine.filter_drift(x) end}
+
+  -- 7. LFO
+  params:add_group("LFO MODULATION", 3)
+  params:add{type = "control", id = "lfo_depth", name = "Global Intensity", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) engine.lfo_depth(x) end}
+  params:add{type = "control", id = "lfo_rate", name = "Global Rate", controlspec = controlspec.new(0.01, 2.0, 'exp', 0.01, 0.1, "Hz"), action = function(x) engine.lfo_rate(x) end}
+  params:add{type = "control", id = "lfo_min_db", name = "LFO Target DB", controlspec = controlspec.new(-90, 0, 'lin', 1, -60, "dB"), action = function(x) engine.lfo_min_db(x) end}
+
+  -- 8. MAIN TAPE ECHO
+  params:add_group("MAIN TAPE ECHO", 7)
+  params:add{type = "control", id = "tape_mix", name = "Tape Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 1.0), action = function(x) engine.tape_mix(x) end}
+  params:add{type = "control", id = "tape_time", name = "Time", controlspec = controlspec.new(0, 4.0, 'lin', 0.01, 0.0, "s"), action = function(x) engine.tape_time(x) end}
+  params:add{type = "control", id = "tape_fb", name = "Feedback", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) engine.tape_fb(x) end}
+  params:add{type = "control", id = "tape_sat", name = "Saturation", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.3), action = function(x) engine.tape_sat(x) end}
+  params:add{type = "control", id = "tape_wow", name = "Wow (Slow)", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.11), action = function(x) engine.tape_wow(x) end}
+  params:add{type = "control", id = "tape_flutter", name = "Flutter (Fast)", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.08), action = function(x) engine.tape_flutter(x) end}
+  params:add{type = "control", id = "tape_erosion", name = "Erosion", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.18), action = function(x) engine.tape_erosion(x) end}
+  -- tape_brake removed
+
+  -- 9. TAPE LOOPERS (1-4)
+  for i=1, 4 do
+    params:add_group("TAPE TRACK " .. i, 15)
+    params:add{type = "control", id = "l"..i.."_speed", name = "Speed", controlspec = controlspec.new(-2.0, 2.0, 'lin', 0.01, 1.0), action = function(x) state.tracks[i].speed = x; Loopers.refresh(i, state) end}
+    params:add{type = "control", id = "l"..i.."_vol", name = "Volume", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.9), action = function(x) state.tracks[i].vol = x; Loopers.refresh(i, state) end}
+    params:add{type = "control", id = "l"..i.."_dub", name = "Overdub", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 1.0), action = function(x) state.tracks[i].overdub = x; Loopers.refresh(i, state) end}
+    params:add{type = "control", id = "l"..i.."_deg", name = "Degrade", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) state.tracks[i].wow_macro = x; Loopers.refresh(i, state) end}
+    params:add{type = "control", id = "l"..i.."_start", name = "Start Point", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) state.tracks[i].loop_start = x; Loopers.refresh(i, state) end}
+    params:add{type = "control", id = "l"..i.."_end", name = "End Point", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 1.0), action = function(x) state.tracks[i].loop_end = x; Loopers.refresh(i, state) end}
+    params:add{type = "option", id = "l"..i.."_src", name = "Input Source", options = SRC_OPTIONS, default = 1, action = function(x) state.tracks[i].src_sel = x - 1; Loopers.refresh(i, state) end}
+    params:add{type = "control", id = "l"..i.."_rec_lvl", name = "Input Level", controlspec = controlspec.new(0, 4.0, 'lin', 0.001, 1.0), action = function(x) state.tracks[i].rec_level = x end}
+    params:add{type = "control", id = "l"..i.."_aux", name = "Aux Send", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) state.tracks[i].aux_send = x; Loopers.refresh(i, state) end}
+    params:add{type = "control", id = "l"..i.."_xfade", name = "Crossfade", controlspec = controlspec.new(0.001, 1.0, 'exp', 0.001, 0.05, "s"), action = function(x) state.tracks[i].xfade = x; Loopers.refresh(i, state) end}
+    
+    -- [NEW] Mixer Params
+    params:add{type = "control", id = "l"..i.."_low", name = "Mixer Low", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0, "dB"), action = function(x) state.tracks[i].l_low = x; Loopers.refresh(i, state) end}
+    params:add{type = "control", id = "l"..i.."_high", name = "Mixer High", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0, "dB"), action = function(x) state.tracks[i].l_high = x; Loopers.refresh(i, state) end}
+    params:add{type = "control", id = "l"..i.."_filter", name = "Mixer Filter", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.5), action = function(x) state.tracks[i].l_filter = x; Loopers.refresh(i, state) end}
+    params:add{type = "control", id = "l"..i.."_pan", name = "Mixer Pan", controlspec = controlspec.new(-1, 1, 'lin', 0.01, 0), action = function(x) state.tracks[i].l_pan = x; Loopers.refresh(i, state) end}
+    params:add{type = "control", id = "l"..i.."_width", name = "Mixer Width", controlspec = controlspec.new(0, 2, 'lin', 0.01, 1), action = function(x) state.tracks[i].l_width = x; Loopers.refresh(i, state) end}
+  end
+
+  -- 10. BANDS
+  params:add_group("BANDS SETUP", 34) 
+  local scale_options = {"Default"}
+  if Scales and Scales.names then scale_options = Scales.names end
+  params:add{type = "option", id = "scale_idx", name = "Scale Type", options = scale_options, default = 1, action = function(x) load_scale(x); state.preview_scale_idx = x end}
+  params:add{type = "option", id = "root_note", name = "Scale Root", options = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"}, default = 1, action = function(x) load_scale(params:get("scale_idx")) end}
+  
+  for i=1, 16 do
+    local default_freq = 100
+    if Scales and Scales.list and Scales.list[1] and Scales.list[1].data then default_freq = Scales.list[1].data[i] end
+    params:add{type = "control", id = "gain_"..i, name = "Band "..i.." Gain", controlspec = controlspec.new(-60, 0, 'lin', 0.1, -60, "dB"), action = function(x) engine.band_gain(i-1, x); state.bands_gain[i] = x end}
+    params:add{type = "control", id = "freq_"..i, name = "Band "..i.." Freq", controlspec = controlspec.new(20, 12000, 'exp', 0, default_freq, "Hz"), action = function(x) engine.band_freq(i-1, x) end}
+  end
+  
+  -- [NEW] TAPE LIBRARY GROUP
+  params:add_group("TAPE LIBRARY", 5)
+  params:add{type = "trigger", id = "save_all_tapes", name = "Save All Reels", action = function() 
+     for i=1,4 do 
+        local len = state.tracks[i].rec_len or 0
+        if len > 0 then
+            local name = _path.audio .. "Avant_lab_V/reel_" .. i .. "_" .. os.date("%y%m%d%H%M") .. ".wav"
+            engine.buffer_write(i, name, len)
+            state.tape_filenames[i] = name:match("^.+/(.+)$")
+            state.tape_msg_timers[i] = util.time() + 2.0
+            state.tracks[i].is_dirty = false 
+            state.tracks[i].file_path = name
+        end
+     end
+  end}
+  params:add{type = "file", id = "load_reel_1", name = "Load Reel 1", path = _path.audio, action = function(f) Loopers.load_file(1, f, state) end}
+  params:add{type = "file", id = "load_reel_2", name = "Load Reel 2", path = _path.audio, action = function(f) Loopers.load_file(2, f, state) end}
+  params:add{type = "file", id = "load_reel_3", name = "Load Reel 3", path = _path.audio, action = function(f) Loopers.load_file(3, f, state) end}
+  params:add{type = "file", id = "load_reel_4", name = "Load Reel 4", path = _path.audio, action = function(f) Loopers.load_file(4, f, state) end}
+  
+  params:add_separator("END OF AVANT_LAB_V")
+
+  -- INIT
+  Grid.init(state, g)
+  
+  local p_l = poll.set("amp_l"); if p_l then p_l.time = 0.05; p_l.callback = function(v) state.amp_l = v end; p_l:start() end
+  local p_r = poll.set("amp_r"); if p_r then p_r.time = 0.05; p_r.callback = function(v) state.amp_r = v end; p_r:start() end
+  for i=1, 16 do local pb = poll.set("b"..(i-1)); if pb then pb.time = 0.05; pb.callback = function(val) state.band_levels[i] = val end; pb:start() end end
+  
+  for i=1, 4 do
+    local pp = poll.set("pos"..i)
+    if pp then
+      pp.time = 0.05
+      pp.callback = function(val) 
+         local t = state.tracks[i]
+         local len = t.rec_len or 0
+         if len > 0.1 then
+            local buffer_ratio = len / MAX_BUFFER_SEC
+            if buffer_ratio > 0.0001 then
+                local norm_pos = val / buffer_ratio
+                state.tracks[i].play_pos = util.clamp(norm_pos, 0, 1)
+            else state.tracks[i].play_pos = 0 end
+         else state.tracks[i].play_pos = 0 end
+      end
+      pp:start()
+    end
+  end
+  
+  local screen_timer = metro.init()
+  screen_timer.time = 1/30
+  screen_timer.event = function() redraw() end
+  screen_timer:start()
+  
+  local grid_timer = metro.init()
+  grid_timer.time = 1/30
+  grid_timer.event = function() Grid.redraw(state) end
+  grid_timer:start()
+  
+  local ping_timer = clock.run(ping_tick)
+  
+  local update_timer = metro.init()
+  update_timer.time = 0.05
+  update_timer.event = function() 
+    update_morph_main() 
+    update_morph_tape()
+  end
+  update_timer:start()
+  
+  params.action_write = function(filename, name, number) Storage.save_data(state, number) end
+  params.action_read = function(filename, silent, number) Storage.load_data(state, number) end
+  
+  update_ping_pattern()
+  params:bang()
+  
+  for i=1,4 do
+    clock.run(function() rec_play_tick_main(i) end)
+    clock.run(function() rec_play_tick_tape(i) end)
+  end
+end
+
+function redraw()
+  if state.file_selector_active then return end
+  screen.clear()
+  Graphics.draw(state)
+  screen.update()
 end
 
 function osc.event(path, args, from)
