@@ -1,5 +1,5 @@
--- Avant_lab_V.lua | Version 106.1
--- FIX: Sequencer Playback Safety (Prevents crash on negative time)
+-- Avant_lab_V.lua | Version 107.0
+-- FIX: Added Load Behavior Parameters (Reels & Seqs)
 
 engine.name = 'Avant_lab_V'
 
@@ -35,7 +35,7 @@ function init()
   params:add_separator("AVANT_LAB_V")
   
   -- 1. GLOBAL & MIX
-  params:add_group("GLOBAL / MIX", 9) 
+  params:add_group("GLOBAL / MIX", 11) -- Increased count for new params
   params:add{type = "control", id = "feedback", name = "Feedback", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) engine.feedback(x) end}
   params:add{type = "control", id = "global_q", name = "Global Q", controlspec = controlspec.new(0.5, 80.0, 'exp', 0, 1.0), action = function(x) engine.global_q(x) end}
   params:add{type = "control", id = "reverb_mix", name = "Reverb Mix", controlspec = controlspec.new(0, 1, 'lin', 0.001, 1.0), action = function(x) engine.reverb_mix(x) end}
@@ -45,6 +45,10 @@ function init()
   params:add{type = "control", id = "scope_zoom", name = "Scope Zoom", controlspec = controlspec.new(1, 10, 'lin', 0.1, 4)}
   params:add{type = "option", id = "gonio_source", name = "Scope Source", options = {"Pre-Master", "Post-Master"}, default = 2, action = function(x) engine.gonio_source(x-1) end}
   params:add{type = "option", id = "rec_behavior", name = "Rec Behavior", options = {"Rec->Play", "Rec->Dub"}, default = 2}
+  
+  -- [NEW] Load Behaviors
+  params:add{type = "option", id = "load_behavior_reels", name = "Load: Reels", options = {"Stop", "Play"}, default = 1}
+  params:add{type = "option", id = "load_behavior_seqs", name = "Load: Seqs", options = {"Stop", "Play"}, default = 2}
 
   -- 2. TIME ENGINES
   params:add_group("TIME ENGINES", 4)
@@ -121,7 +125,7 @@ function init()
     params:add{type = "control", id = "l"..i.."_aux", name = "Aux Send", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) state.tracks[i].aux_send = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_xfade", name = "Crossfade", controlspec = controlspec.new(0.001, 1.0, 'exp', 0.001, 0.05, "s"), action = function(x) state.tracks[i].xfade = x; Loopers.refresh(i, state) end}
     
-    -- [NEW] Mixer Params
+    -- [NEW] Mixer Params (+/- 18dB)
     params:add{type = "control", id = "l"..i.."_low", name = "Mixer Low", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0, "dB"), action = function(x) state.tracks[i].l_low = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_high", name = "Mixer High", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0, "dB"), action = function(x) state.tracks[i].l_high = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_filter", name = "Mixer Filter", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.5), action = function(x) state.tracks[i].l_filter = x; Loopers.refresh(i, state) end}
@@ -430,9 +434,6 @@ function rec_play_tick_main(slot)
            if r.step < #r.data then next_time = (r.data[r.step+1].dt - event.dt) / rate
            else next_time = (r.duration - event.dt) / rate end
            
-           -- [FIX] SAFETY CHECK: Prevent negative sleep time
-           if next_time < 0 then next_time = 0 end
-           
            if event.x and event.y and event.z then
               Grid.key(event.x, event.y, event.z, state, engine, 1) 
            end
@@ -456,9 +457,6 @@ function rec_play_tick_tape(slot)
            local next_time = 0
            if r.step < #r.data then next_time = (r.data[r.step+1].dt - event.dt) / rate
            else next_time = (r.duration - event.dt) / rate end
-           
-           -- [FIX] SAFETY CHECK: Prevent negative sleep time
-           if next_time < 0 then next_time = 0 end
            
            if event.x and event.y and event.z then
               Grid.key(event.x, event.y, event.z, state, engine, 7, event.tid)
