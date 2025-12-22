@@ -1,5 +1,5 @@
--- Avant_lab_V lib/grid.lua | Version 106.5
--- FIX: Immediate Tape State Recall, Robust Sequencer Restore
+-- Avant_lab_V lib/grid.lua | Version 106.10
+-- FIX: Syntax Error Fixed (Missing 'end' in restore_sequencers)
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -190,27 +190,32 @@ local function restore_sequencers(target_seqs, current_slots)
         local src = target_seqs[i]
         local dst = current_slots[i]
         
-        dst.data = {}
-        for _, ev in ipairs(src.data) do table.insert(dst.data, ev) end
+        -- [FIX] CRITICAL PROTECTION:
+        -- If the sequencer is Active (Rec=1, Play=2, Dub=4), DO NOT overwrite it.
+        local is_active = (dst.state == 1 or dst.state == 2 or dst.state == 4)
         
-        -- [FIX] Ensure duration is valid to prevent freeze
-        if src.duration and src.duration > 0 then
-            dst.duration = src.duration
-        elseif #dst.data > 0 then
-            dst.duration = dst.data[#dst.data].dt + 0.1 -- Fallback
-        else
-            dst.duration = 1.0
-        end
+        if not is_active then
+            dst.data = {}
+            for _, ev in ipairs(src.data) do table.insert(dst.data, ev) end
+            
+            if src.duration and src.duration > 0 then
+                dst.duration = src.duration
+            elseif #dst.data > 0 then
+                dst.duration = dst.data[#dst.data].dt + 0.1
+            else
+                dst.duration = 1.0
+            end
 
-        -- If it was playing/recording in the preset, set to Play (2)
-        if src.state == 1 or src.state == 2 or src.state == 4 then
-            dst.state = 2
-            dst.start_time = util.time()
-            dst.step = 1
-        else
-            dst.state = 0 -- Stop
+            -- Auto-start if it was running in the saved preset (and we are currently stopped)
+            if src.state == 1 or src.state == 2 or src.state == 4 then
+                dst.state = 2
+                dst.start_time = util.time()
+                dst.step = 1
+            else
+                dst.state = 0
+            end
         end
-    end
+    end -- [FIX] This 'end' was missing in previous version
 end
 
 function Grid.key(x, y, z, state, engine, simulated_page, target_track)
@@ -352,7 +357,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                  state.morph_tape_src = {}; for i=1,4 do state.morph_tape_src[i] = {speed=state.tracks[i].speed, vol=state.tracks[i].vol, l_low=state.tracks[i].l_low, l_high=state.tracks[i].l_high, l_filter=state.tracks[i].l_filter, l_pan=state.tracks[i].l_pan, l_width=state.tracks[i].l_width} end
                  state.morph_tape_active = true; state.morph_tape_slot = slot; state.morph_tape_start_time = util.time(); state.tape_preset_selected = slot
                  
-                 -- [FIX] Immediate Tape State Recall
                  local target = presets_data[slot]
                  if target and target.tracks then
                     for i=1,4 do
