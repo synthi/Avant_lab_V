@@ -1,5 +1,5 @@
-// Engine_Avant_lab_V.sc | Version 97.8
-// FIX: Boosted Crackles (Louder & Earlier Presence)
+// Engine_Avant_lab_V.sc | Version 98.0
+// FIX: Implemented Rec Level Input Gain (Real +12dB boost support)
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -58,6 +58,7 @@ Engine_Avant_lab_V : CroneEngine {
             var filter_drift=\filter_drift.kr(0);
             var main_mon=\main_mon.kr(0.833); 
             
+            // Looper Params
             var l_rec = [\l1_rec.kr(0), \l2_rec.kr(0), \l3_rec.kr(0), \l4_rec.kr(0)];
             var l_play = [\l1_play.kr(0), \l2_play.kr(0), \l3_play.kr(0), \l4_play.kr(0)];
             var l_vol = [\l1_vol.kr(0), \l2_vol.kr(0), \l3_vol.kr(0), \l4_vol.kr(0)];
@@ -71,6 +72,10 @@ Engine_Avant_lab_V : CroneEngine {
             var l_xfade = [\l1_xfade.kr(0.05), \l2_xfade.kr(0.05), \l3_xfade.kr(0.05), \l4_xfade.kr(0.05)];
             var l_brake = [\l1_brake.kr(0), \l2_brake.kr(0), \l3_brake.kr(0), \l4_brake.kr(0)];
             
+            // [FIX] Added Rec Level Array
+            var l_rec_lvl = [\l1_rec_lvl.kr(1), \l2_rec_lvl.kr(1), \l3_rec_lvl.kr(1), \l4_rec_lvl.kr(1)];
+            
+            // Mixer Params
             var l_low = [\l1_low.kr(0), \l2_low.kr(0), \l3_low.kr(0), \l4_low.kr(0)];
             var l_high = [\l1_high.kr(0), \l2_high.kr(0), \l3_high.kr(0), \l4_high.kr(0)];
             var l_filter = [\l1_filter.kr(0.5), \l2_filter.kr(0.5), \l3_filter.kr(0.5), \l4_filter.kr(0.5)];
@@ -106,20 +111,12 @@ Engine_Avant_lab_V : CroneEngine {
             aux_feedback_in = InFeedback.ar(aux_return_bus_idx, 2).tanh; 
             noise = Select.ar(noise_type, [PinkNoise.ar, WhiteNoise.ar]) * noise_amp * 0.6;
             
-            // [FIX] TUNED SYSTEM DIRT
             hiss_vol = (system_dirt.pow(0.75)) * 0.03;
             hum_vol = (system_dirt.pow(3)) * 0.015;
-            
-            // 3. Dust (Crackles): BOOSTED VOLUME
             dust_dens = LinLin.kr(system_dirt, 0.11, 1.0, 0.05, 11);
-            
-            // [FIX] Volume Curve: Starts at 0.01 (audible) -> 0.5 (Loud)
-            // Reaches previous "0.8 level" around 0.4 knob position
             dust_vol = LinExp.kr(system_dirt, 0.11, 1.0, 0.01, 0.5);
-            
             dust_sig = Decay2.ar(Dust.ar(dust_dens), 0.001, 0.01) * PinkNoise.ar(1);
             dust_sig = dust_sig * dust_vol * (system_dirt > 0.11);
-            
             dirt_sig = (PinkNoise.ar(hiss_vol) + SinOsc.ar(50, 0, hum_vol) + dust_sig).dup;
             
             input = In.ar(in_bus, 2) * input_amp;
@@ -216,6 +213,9 @@ Engine_Avant_lab_V : CroneEngine {
                 var trk_xfade = l_xfade[i];
                 var trk_brake = l_brake[i]; 
                 
+                // [FIX] Get Rec Level from array
+                var trk_rec_lvl = l_rec_lvl[i];
+                
                 var trk_low = l_low[i]; var trk_high = l_high[i]; var trk_filter = l_filter[i];
                 var trk_pan = l_pan[i]; var trk_width = l_width[i];
                 
@@ -266,22 +266,20 @@ Engine_Avant_lab_V : CroneEngine {
                 play_sig = play_sig * xfade_gain;
                 
                 deg_curve = trk_deg.pow(2.5); 
-                
                 corrosion_am = 1.0 - (LFNoise2.kr(8 + (i*2)).unipolar * deg_curve * 0.6);
                 play_sig = play_sig * corrosion_am;
-                
                 flutter_delay = LFNoise2.ar(4 + (i*1.5)).range(0, 0.008 * deg_curve);
                 play_sig = DelayC.ar(play_sig, 0.05, flutter_delay);
-                
                 cutoff = LinExp.kr(deg_curve, 0, 1, 20000, 2100);
                 play_sig = LPF.ar(play_sig, cutoff);
-                
                 play_sig = (play_sig * (1 + (deg_curve * 0.8))).tanh;
 
                 dynamic_cutoff = (rate_slew.abs * 20000).clip(10, 20000);
                 play_sig = LPF.ar(LPF.ar(play_sig, dynamic_cutoff), dynamic_cutoff);
                 
-                rec_sig = in + (play_sig * trk_dub);
+                // [FIX] APPLY REC LEVEL TO INPUT (Pre-Feedback)
+                rec_sig = (in * trk_rec_lvl) + (play_sig * trk_dub);
+                
                 rec_sig = LPF.ar(rec_sig, dynamic_cutoff);
                 
                 BufWr.ar(rec_sig.tanh, target_buf, ptr);
@@ -376,6 +374,9 @@ Engine_Avant_lab_V : CroneEngine {
         this.addCommand("l_filter", "if", { |msg| synth.set(("l" ++ msg[1] ++ "_filter").asSymbol, msg[2]); });
         this.addCommand("l_pan", "if", { |msg| synth.set(("l" ++ msg[1] ++ "_pan").asSymbol, msg[2]); });
         this.addCommand("l_width", "if", { |msg| synth.set(("l" ++ msg[1] ++ "_width").asSymbol, msg[2]); });
+        
+        // [FIX] ADDED OSC COMMAND FOR REC LEVEL
+        this.addCommand("l_rec_lvl", "if", { |msg| synth.set(("l" ++ msg[1] ++ "_rec_lvl").asSymbol, msg[2]); });
 
         this.addCommand("l1_config", "ffffffffffff", { |msg| synth.set(\l1_rec, msg[1], \l1_play, msg[2], \l1_vol, msg[3], \l1_speed, msg[4], \l1_start, msg[5], \l1_end, msg[6], \l1_src, msg[7], \l1_dub, msg[8], \l1_aux, msg[9], \l1_deg, msg[10], \l1_xfade, msg[11], \l1_brake, msg[12]); });
         this.addCommand("l2_config", "ffffffffffff", { |msg| synth.set(\l2_rec, msg[1], \l2_play, msg[2], \l2_vol, msg[3], \l2_speed, msg[4], \l2_start, msg[5], \l2_end, msg[6], \l2_src, msg[7], \l2_dub, msg[8], \l2_aux, msg[9], \l2_deg, msg[10], \l2_xfade, msg[11], \l2_brake, msg[12]); });
