@@ -1,5 +1,5 @@
--- Avant_lab_V lib/storage.lua | Version 107.4
--- FIX: Robust System Save/Load for Sequencers (Compensates for Grid Preset Change)
+-- Avant_lab_V lib/storage.lua | Version 107.5
+-- FIX: Strict Sequencer State Restore (Respects Saved Stop State)
 
 local Storage = {}
 
@@ -29,7 +29,6 @@ local function sanitize_preset_data(p_data, p_status, type)
    if p_status == 0 then return {} end
    if not p_data then return {}, 0 end
    
-   -- Compatibility: Remove 'seqs' field if present (cleanup old data)
    if p_data.seqs then p_data.seqs = nil end
    
    if type == "main" and not p_data.gains then return {}, 0 end
@@ -66,10 +65,10 @@ function Storage.save_data(state, pset_id)
   local filename = _path.data .. "Avant_lab_V/" .. pset_id .. ".data"
   
   local pack = {
-    main_rec = state.main_rec_slots, -- CRITICAL: Saving current sequencers here
+    main_rec = state.main_rec_slots,
     main_pre = state.main_presets_data,
     main_stat = state.main_presets_status,
-    tape_rec = state.tape_rec_slots, -- CRITICAL: Saving current sequencers here
+    tape_rec = state.tape_rec_slots,
     tape_pre = state.tape_presets_data,
     tape_stat = state.tape_presets_status,
     tracks = state.tracks 
@@ -102,11 +101,15 @@ function Storage.load_data(state, pset_id)
          for i=1,4 do 
             state.main_rec_slots[i] = sanitize_sequencer(pack.main_rec[i])
             local s = state.main_rec_slots[i]
+            
+            -- [FIX] Strict Logic: Only play if it WAS playing AND user wants Play
             if s.state > 0 then 
-               if seq_behavior == 2 then 
+               local was_active = (s.state == 1 or s.state == 2 or s.state == 4)
+               
+               if seq_behavior == 2 and was_active then 
                   s.state = 2; s.start_time = util.time(); s.step = 1
                else 
-                  s.state = 3
+                  s.state = 3 -- Force Stop (Loaded but waiting)
                end
             end
          end 
@@ -126,8 +129,11 @@ function Storage.load_data(state, pset_id)
          for i=1,4 do 
             state.tape_rec_slots[i] = sanitize_sequencer(pack.tape_rec[i])
             local s = state.tape_rec_slots[i]
+            
             if s.state > 0 then
-               if seq_behavior == 2 then
+               local was_active = (s.state == 1 or s.state == 2 or s.state == 4)
+               
+               if seq_behavior == 2 and was_active then
                   s.state = 2; s.start_time = util.time(); s.step = 1
                else
                   s.state = 3
