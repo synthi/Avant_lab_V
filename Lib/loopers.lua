@@ -1,5 +1,5 @@
--- Avant_lab_V lib/loopers.lua | Version 95.0
--- FIX: Rec Behavior Logic (Rec->Dub or Rec->Play)
+-- Avant_lab_V lib/loopers.lua | Version 108.3
+-- FIX: Sync Overdub Param with Encoder Change
 
 local Loopers = {}
 local MAX_BUFFER_SEC = 60.0
@@ -128,7 +128,9 @@ function Loopers.delta_param(param_name, d, state)
    local t = state.tracks[idx]
    if not t then return end
    
-   if param_name == "vol" then t.vol = util.clamp((t.vol or 0.5) + d*0.01, 0, 1)
+   if param_name == "vol" then 
+      t.vol = util.clamp((t.vol or 0.5) + d*0.01, 0, 1)
+      -- Optional: Sync param if needed, but vol is usually fine
    elseif param_name == "speed" then
      local old_s = t.speed or 1
      local s = old_s + (d * 0.01)
@@ -137,7 +139,12 @@ function Loopers.delta_param(param_name, d, state)
      if math.abs(s - 1.0) < snap_dist and math.abs(old_s - 1.0) > 0.001 then s = 1.0 end
      if math.abs(s + 1.0) < snap_dist and math.abs(old_s + 1.0) > 0.001 then s = -1.0 end
      t.speed = util.clamp(s, -2.0, 2.0)
-   elseif param_name == "overdub" then t.overdub = util.clamp((t.overdub or 1.0) + d*0.01, 0, 1)
+     
+   elseif param_name == "overdub" then 
+      t.overdub = util.clamp((t.overdub or 1.0) + d*0.01, 0, 1)
+      -- [FIX] Sync System Parameter
+      params:set("l"..idx.."_dub", t.overdub)
+      
    elseif param_name == "start" then local e = t.loop_end or 1; t.loop_start = util.clamp((t.loop_start or 0) + d*0.005, 0, e - 0.01)
    elseif param_name == "end" then local s = t.loop_start or 0; t.loop_end = util.clamp((t.loop_end or 1) + d*0.005, s + 0.01, 1.0)
    elseif param_name == "rec_level" then t.rec_level = util.clamp((t.rec_level or 1.0) + d*0.01, 0, 2.0)
@@ -175,7 +182,7 @@ function Loopers.transport_rec(state, idx, action_type)
         t.rec_len = effective_len
         t.loop_start = 0.001; t.loop_end = 1.0
         
-        -- [FIX] Check Rec Behavior Param
+        -- Check Rec Behavior Param
         local behavior = params:get("rec_behavior")
         if behavior == 2 then
            t.state = 4 -- Go to Overdub
