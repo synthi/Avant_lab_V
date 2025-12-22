@@ -1,5 +1,5 @@
--- Avant_lab_V lib/graphics.lua | Version 105.9
--- FIX: Page 1 LFO Label Position Locked (Identical drawing logic for Shift/No-Shift)
+-- Avant_lab_V lib/graphics.lua | Version 105.11
+-- FIX: Page 3 Monitor Display in dB (Applied correctly)
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -281,7 +281,6 @@ function Graphics.draw(state)
      screen.clear()
      screen.level(4); screen.font_size(8); screen.move(0, 8)
      
-     -- STATIC HEADER (Left)
      local s_name = Scales.list[state.preview_scale_idx].name
      local root_txt = note_names[params:get("root_note")] or "?"
      
@@ -291,21 +290,15 @@ function Graphics.draw(state)
         screen.level(15); screen.text("LOAD: " .. s_name .. " (" .. root_txt .. ") >") 
      end
      
-     -- [FIX] STATIC HEADER (Right) - LFO Position Locked
-     -- Logic: Draw value, calculate width, draw label to the left of it.
-     -- This is done identically for both shift/no-shift states to prevent jumping.
-     
      local lfo_v = string.format("%.2f", params:get("lfo_depth") or 0)
      local val_w = screen.text_extents(lfo_v)
      
-     -- 1. Draw Value (Aligned Right)
      screen.move(128, 8)
      if shift then screen.level(15) else screen.level(3) end
      screen.text_right(lfo_v)
      
-     -- 2. Draw Label (Aligned Left of Value)
      screen.move(128 - val_w - 2, 8)
-     screen.level(3) -- Label always dim
+     screen.level(3) 
      screen.text_right("LFO:")
      
      local floor_y = 60
@@ -334,7 +327,6 @@ function Graphics.draw(state)
         screen.move(col1_x, 53); screen.level(3); screen.text("RATE")
         screen.move(col1_x, 60); screen.level(15); screen.text(string.format("%.2f", params:get("lfo_rate") or 0))
         
-        -- Bright Root in Shift Mode
         local root_txt_bottom = note_names[params:get("root_note")] or "?"
         screen.move(col2_x, 53); screen.level(3); screen.text("ROOT")
         screen.move(col2_x, 60); screen.level(15); screen.text(root_txt_bottom)
@@ -399,7 +391,13 @@ function Graphics.draw(state)
     screen.clear()
     if not shift then
       draw_left_e1("REV", string.format("%.2f", params:get("reverb_mix") or 0))
-      draw_right_param_pair("RMIX", string.format("%.2f", params:get("rm_mix") or 0), "MON", string.format("%.2f", params:get("main_mon") or 0))
+      
+      -- [FIX] Page 3 Monitor in dB
+      local mon_val = params:get("main_mon") or 0.833
+      local mon_db = util.linlin(0, 1, -60, 12, mon_val)
+      local mon_txt = string.format("%.1fdB", mon_db)
+      
+      draw_right_param_pair("RMIX", string.format("%.2f", params:get("rm_mix") or 0), "MON", mon_txt)
     else
       draw_left_e1("DIRT", string.format("%.2f", params:get("system_dirt") or 0))
       draw_right_param_pair("FREQ", string.format("%.0f", params:get("rm_freq") or 100), "NOISE", string.format("%.2f", params:get("noise_amp") or 0))
