@@ -1,5 +1,5 @@
-// Engine_Avant_lab_V.sc | Version 96.0
-// FIX: Monitor Source Selector (Independent from Gonio/Feedback)
+// Engine_Avant_lab_V.sc | Version 97.8
+// FIX: Boosted Crackles (Louder & Earlier Presence)
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -36,7 +36,7 @@ Engine_Avant_lab_V : CroneEngine {
             |out_bus=0, in_bus=0, buf1=0, buf2=0, buf3=0, buf4=0, dummy_buf=0,
              tape_fb_bus_idx=0, aux_return_bus_idx=0, bus_l_idx=0, bus_r_idx=0, bands_bus_base=0, pos_bus_base=0,
              t1_bus=0, t2_bus=0, t3_bus=0, t4_bus=0,
-             gonio_source=1, main_src_sel=3| // Default 3 = Post Reverb
+             gonio_source=1, main_src_sel=3| 
 
             // --- GLOBAL VARIABLES ---
             var noise, input, source, local, input_sum, ping, ping_env; 
@@ -106,12 +106,20 @@ Engine_Avant_lab_V : CroneEngine {
             aux_feedback_in = InFeedback.ar(aux_return_bus_idx, 2).tanh; 
             noise = Select.ar(noise_type, [PinkNoise.ar, WhiteNoise.ar]) * noise_amp * 0.6;
             
-            hiss_vol = (system_dirt.squared) * 0.15;
-            hum_vol = (system_dirt.pow(5)) * 0.015;
-            dust_dens = LinLin.kr(system_dirt, 0.18, 1.0, 0.1, 15);
+            // [FIX] TUNED SYSTEM DIRT
+            hiss_vol = (system_dirt.pow(0.75)) * 0.03;
+            hum_vol = (system_dirt.pow(3)) * 0.015;
+            
+            // 3. Dust (Crackles): BOOSTED VOLUME
+            dust_dens = LinLin.kr(system_dirt, 0.11, 1.0, 0.05, 11);
+            
+            // [FIX] Volume Curve: Starts at 0.01 (audible) -> 0.5 (Loud)
+            // Reaches previous "0.8 level" around 0.4 knob position
+            dust_vol = LinExp.kr(system_dirt, 0.11, 1.0, 0.01, 0.5);
+            
             dust_sig = Decay2.ar(Dust.ar(dust_dens), 0.001, 0.01) * PinkNoise.ar(1);
-            dust_vol = LinLin.kr(system_dirt, 0.18, 1.0, 0.1, 0.6);
-            dust_sig = dust_sig * dust_vol * (system_dirt > 0.18);
+            dust_sig = dust_sig * dust_vol * (system_dirt > 0.11);
+            
             dirt_sig = (PinkNoise.ar(hiss_vol) + SinOsc.ar(50, 0, hum_vol) + dust_sig).dup;
             
             input = In.ar(in_bus, 2) * input_amp;
@@ -212,15 +220,16 @@ Engine_Avant_lab_V : CroneEngine {
                 var trk_pan = l_pan[i]; var trk_width = l_width[i];
                 
                 var seek_t = l_seek_t[i]; var seek_p = l_seek_p[i];
-                var in, rate_slew, wob, ptr, play_sig, rec_sig, cutoff;
+                var in, rate_slew, ptr, play_sig, rec_sig, cutoff;
                 var dynamic_cutoff, output_sig;
                 var target_buf;
                 var brake_mod, lfo_mod, brake_idx, lfo_lag_time; 
                 var start_pos, end_pos, fade_len, dist_start, dist_end, fade_in, fade_out, xfade_gain;
                 
+                var corrosion_am, flutter_delay, deg_curve;
+                
                 var c_lpf, c_hpf, f_lpf, f_hpf;
                 var mid, side, new_l, new_r;
-                
                 var eq_max_db, sat_drive;
                 
                 target_buf = Select.kr(gate_rec > 0.1, [dummy_buf, b_idx]);
@@ -239,9 +248,8 @@ Engine_Avant_lab_V : CroneEngine {
                 lfo_mod = Lag.kr(lfo_mod, lfo_lag_time);
                 
                 rate_slew = Lag.kr(trk_spd, 0.05) * brake_mod * lfo_mod; 
-                wob = LFNoise2.kr(0.3+(i*0.1)).range(1.0-(trk_deg*0.04), 1.0+(trk_deg*0.04));
                 
-                ptr = Phasor.ar(seek_t, rate_slew * wob * BufRateScale.kr(b_idx), 
+                ptr = Phasor.ar(seek_t, rate_slew * BufRateScale.kr(b_idx), 
                                 trk_start * BufFrames.kr(b_idx), trk_end * BufFrames.kr(b_idx),
                                 seek_p * BufFrames.kr(b_idx));
                 
@@ -257,11 +265,21 @@ Engine_Avant_lab_V : CroneEngine {
                 play_sig = BufRd.ar(2, b_idx, ptr, 1, 4);
                 play_sig = play_sig * xfade_gain;
                 
+                deg_curve = trk_deg.pow(2.5); 
+                
+                corrosion_am = 1.0 - (LFNoise2.kr(8 + (i*2)).unipolar * deg_curve * 0.6);
+                play_sig = play_sig * corrosion_am;
+                
+                flutter_delay = LFNoise2.ar(4 + (i*1.5)).range(0, 0.008 * deg_curve);
+                play_sig = DelayC.ar(play_sig, 0.05, flutter_delay);
+                
+                cutoff = LinExp.kr(deg_curve, 0, 1, 20000, 2100);
+                play_sig = LPF.ar(play_sig, cutoff);
+                
+                play_sig = (play_sig * (1 + (deg_curve * 0.8))).tanh;
+
                 dynamic_cutoff = (rate_slew.abs * 20000).clip(10, 20000);
                 play_sig = LPF.ar(LPF.ar(play_sig, dynamic_cutoff), dynamic_cutoff);
-                
-                cutoff = LinLin.kr(trk_deg, 0, 1, 20000, 2500);
-                play_sig = LPF.ar(play_sig, cutoff);
                 
                 rec_sig = in + (play_sig * trk_dub);
                 rec_sig = LPF.ar(rec_sig, dynamic_cutoff);
@@ -300,8 +318,6 @@ Engine_Avant_lab_V : CroneEngine {
             
             LocalOut.ar(final_signal);
             
-            // [FIX] MONITOR SOURCE SELECTOR
-            // 0=Clean, 1=Tape, 2=Filter, 3=Reverb
             monitor_signal = Select.ar(main_src_sel, [tap_clean, tap_post_tape, tap_post_filter, tap_post_reverb]);
             
             main_mon_amp = LinLin.kr(main_mon, 0, 1, -60, 12).dbamp * (main_mon > 0.001);
@@ -311,9 +327,6 @@ Engine_Avant_lab_V : CroneEngine {
             Out.ar(aux_return_bus_idx, loop_aux_sum);
             Out.ar(out_bus, master_out);
             
-            // [FIX] GONIO SOURCE: Independent from Monitor Source
-            // 0=Pre-Master (Always shows final_signal/Post-Reverb internal loop)
-            // 1=Post-Master (Shows final output)
             gonio_sig = Select.ar(gonio_source, [final_signal, master_out]);
             
             Out.kr(bus_l_idx, Amplitude.kr(gonio_sig[0]));
@@ -415,7 +428,7 @@ Engine_Avant_lab_V : CroneEngine {
         this.addCommand("band_gain", "if", { |msg| synth.set(("g" ++ msg[1]).asSymbol, msg[2]); });
         this.addCommand("band_freq", "if", { |msg| synth.set(("f" ++ msg[1]).asSymbol, msg[2]); });
         this.addCommand("gonio_source", "i", { |msg| synth.set(\gonio_source, msg[1]); });
-        this.addCommand("main_source", "i", { |msg| synth.set(\main_src_sel, msg[1]); }); // [FIX] Added OSC command
+        this.addCommand("main_source", "i", { |msg| synth.set(\main_src_sel, msg[1]); }); 
     }
 
     free {
