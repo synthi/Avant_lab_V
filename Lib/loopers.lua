@@ -1,5 +1,5 @@
--- Avant_lab_V lib/loopers.lua | Version 108.3
--- FIX: Sync Overdub Param with Encoder Change
+-- Avant_lab_V lib/loopers.lua | Version 109.1
+-- FIX: Send Rec Level to Engine in Refresh
 
 local Loopers = {}
 local MAX_BUFFER_SEC = 60.0
@@ -69,6 +69,9 @@ function Loopers.refresh(t_idx, state)
   engine.l_filter(t_idx, t.l_filter or 0.5)
   engine.l_pan(t_idx, t.l_pan or 0)
   engine.l_width(t_idx, t.l_width or 1)
+  
+  -- [FIX] Send Rec Level
+  engine.l_rec_lvl(t_idx, t.rec_level or 1.0)
 end
 
 function Loopers.set_speed_slew(idx, target_speed, slew_time, state, start_val_override)
@@ -128,9 +131,7 @@ function Loopers.delta_param(param_name, d, state)
    local t = state.tracks[idx]
    if not t then return end
    
-   if param_name == "vol" then 
-      t.vol = util.clamp((t.vol or 0.5) + d*0.01, 0, 1)
-      -- Optional: Sync param if needed, but vol is usually fine
+   if param_name == "vol" then t.vol = util.clamp((t.vol or 0.5) + d*0.01, 0, 1)
    elseif param_name == "speed" then
      local old_s = t.speed or 1
      local s = old_s + (d * 0.01)
@@ -139,15 +140,15 @@ function Loopers.delta_param(param_name, d, state)
      if math.abs(s - 1.0) < snap_dist and math.abs(old_s - 1.0) > 0.001 then s = 1.0 end
      if math.abs(s + 1.0) < snap_dist and math.abs(old_s + 1.0) > 0.001 then s = -1.0 end
      t.speed = util.clamp(s, -2.0, 2.0)
-     
    elseif param_name == "overdub" then 
       t.overdub = util.clamp((t.overdub or 1.0) + d*0.01, 0, 1)
-      -- [FIX] Sync System Parameter
       params:set("l"..idx.."_dub", t.overdub)
-      
    elseif param_name == "start" then local e = t.loop_end or 1; t.loop_start = util.clamp((t.loop_start or 0) + d*0.005, 0, e - 0.01)
    elseif param_name == "end" then local s = t.loop_start or 0; t.loop_end = util.clamp((t.loop_end or 1) + d*0.005, s + 0.01, 1.0)
-   elseif param_name == "rec_level" then t.rec_level = util.clamp((t.rec_level or 1.0) + d*0.01, 0, 2.0)
+   
+   elseif param_name == "rec_level" then 
+      t.rec_level = util.clamp((t.rec_level or 1.0) + d*0.01, 0, 4.0)
+      
    elseif param_name == "aux" then t.aux_send = util.clamp((t.aux_send or 0) + d*0.01, 0, 1)
    elseif param_name == "wow" then t.wow_macro = util.clamp((t.wow_macro or 0) + d*0.01, 0, 1)
    end
