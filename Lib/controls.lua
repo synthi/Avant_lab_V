@@ -1,5 +1,5 @@
--- Avant_lab_V lib/controls.lua | Version 96.1
--- FIX: Mixer EQ Range +/- 18dB Allowed
+-- Avant_lab_V lib/controls.lua | Version 109.0
+-- FIX: Page 7 Shift E3 controls Loop End correctly
 
 local Controls = {}
 local fileselect = require 'fileselect' 
@@ -154,7 +154,8 @@ Pages[7] = {
     if (s.k1_held or s.mod_shift_16) then
       if n==1 then Loopers.delta_param("rec_level", d, s) 
       elseif n==2 then Loopers.delta_param("start", d, s)
-      elseif n==3 then params:delta("l"..s.track_sel.."_xfade", d) end 
+      -- [FIX] Corrected E3 Shift to control "end" instead of "xfade"
+      elseif n==3 then Loopers.delta_param("end", d, s) end 
     else
       if n==1 then Loopers.delta_param("vol", d, s)
       elseif n==2 then Loopers.delta_param("speed", d, s)
@@ -208,7 +209,6 @@ Pages[9] = {
     local t = s.tracks[trk]
     if not (s.k1_held or s.mod_shift_16) then
        if n==1 then t.vol = util.clamp(t.vol + d*0.01, 0, 1); Loopers.refresh(trk, s) 
-       -- [FIX] Allow range -18 to 18
        elseif n==2 then t.l_low = util.clamp(t.l_low + d*0.1, -18, 18); Loopers.refresh(trk, s) 
        elseif n==3 then t.l_high = util.clamp(t.l_high + d*0.1, -18, 18); Loopers.refresh(trk, s) end 
     else
