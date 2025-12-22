@@ -60,8 +60,8 @@ This page simulates a vintage **Klangfilm/Siemens** broadcasting console.
 
 *   **Select Track:** Press **K2** (Left) or **K3** (Right) to select the active channel (1-4).
 *   **E1 (Fader):** Volume fader (up to +12dB).
-*   **E2 (Low EQ):** Vintage low shelf (110Hz). Gives "body" and saturation.
-*   **E3 (High EQ):** Vintage high shelf (6.5kHz). Adds "air" and presence.
+*   **E2 (Low EQ):** Vintage low shelf (60Hz). Gives "body" and saturation.
+*   **E3 (High EQ):** Vintage high shelf (10kHz). Adds "air" and presence.
 
 **Shift Functions (Hold K1):**
 *   **E1:** Filter (DJ style HPF/LPF).
