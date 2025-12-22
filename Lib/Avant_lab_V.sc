@@ -1,5 +1,5 @@
-// Engine_Avant_lab_V.sc | Version 95.2
-// FIX: Main Monitor Range Expanded (-60dB to +12dB)
+// Engine_Avant_lab_V.sc | Version 96.0
+// FIX: Monitor Source Selector (Independent from Gonio/Feedback)
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -36,7 +36,7 @@ Engine_Avant_lab_V : CroneEngine {
             |out_bus=0, in_bus=0, buf1=0, buf2=0, buf3=0, buf4=0, dummy_buf=0,
              tape_fb_bus_idx=0, aux_return_bus_idx=0, bus_l_idx=0, bus_r_idx=0, bands_bus_base=0, pos_bus_base=0,
              t1_bus=0, t2_bus=0, t3_bus=0, t4_bus=0,
-             gonio_source=1|
+             gonio_source=1, main_src_sel=3| // Default 3 = Post Reverb
 
             // --- GLOBAL VARIABLES ---
             var noise, input, source, local, input_sum, ping, ping_env; 
@@ -56,7 +56,7 @@ Engine_Avant_lab_V : CroneEngine {
             
             var system_dirt=\system_dirt.kr(0);
             var filter_drift=\filter_drift.kr(0);
-            var main_mon=\main_mon.kr(0.833); // Default approx 0dB
+            var main_mon=\main_mon.kr(0.833); 
             
             var l_rec = [\l1_rec.kr(0), \l2_rec.kr(0), \l3_rec.kr(0), \l4_rec.kr(0)];
             var l_play = [\l1_play.kr(0), \l2_play.kr(0), \l3_play.kr(0), \l4_play.kr(0)];
@@ -91,7 +91,7 @@ Engine_Avant_lab_V : CroneEngine {
             var tap_clean, tap_post_tape, tap_post_filter, tap_post_reverb;
             var dirt_sig, hiss_vol, hum_vol, dust_dens, dust_sig, dust_vol;
             var master_out, gonio_sig;
-            var main_mon_amp; // New variable for expanded gain
+            var main_mon_amp, monitor_signal; 
             
             var trk1_in = InFeedback.ar(t1_bus, 2);
             var trk2_in = InFeedback.ar(t2_bus, 2);
@@ -300,15 +300,20 @@ Engine_Avant_lab_V : CroneEngine {
             
             LocalOut.ar(final_signal);
             
-            // [FIX] MAIN MONITOR EXPANSION
-            // Convert 0-1 input to -60dB to +12dB, then to linear amplitude
+            // [FIX] MONITOR SOURCE SELECTOR
+            // 0=Clean, 1=Tape, 2=Filter, 3=Reverb
+            monitor_signal = Select.ar(main_src_sel, [tap_clean, tap_post_tape, tap_post_filter, tap_post_reverb]);
+            
             main_mon_amp = LinLin.kr(main_mon, 0, 1, -60, 12).dbamp * (main_mon > 0.001);
             
-            master_out = Limiter.ar((final_signal * main_mon_amp) + loop_outputs_sum, 0.95);
+            master_out = Limiter.ar((monitor_signal * main_mon_amp) + loop_outputs_sum, 0.95);
             
             Out.ar(aux_return_bus_idx, loop_aux_sum);
             Out.ar(out_bus, master_out);
             
+            // [FIX] GONIO SOURCE: Independent from Monitor Source
+            // 0=Pre-Master (Always shows final_signal/Post-Reverb internal loop)
+            // 1=Post-Master (Shows final output)
             gonio_sig = Select.ar(gonio_source, [final_signal, master_out]);
             
             Out.kr(bus_l_idx, Amplitude.kr(gonio_sig[0]));
@@ -410,6 +415,7 @@ Engine_Avant_lab_V : CroneEngine {
         this.addCommand("band_gain", "if", { |msg| synth.set(("g" ++ msg[1]).asSymbol, msg[2]); });
         this.addCommand("band_freq", "if", { |msg| synth.set(("f" ++ msg[1]).asSymbol, msg[2]); });
         this.addCommand("gonio_source", "i", { |msg| synth.set(\gonio_source, msg[1]); });
+        this.addCommand("main_source", "i", { |msg| synth.set(\main_src_sel, msg[1]); }); // [FIX] Added OSC command
     }
 
     free {
