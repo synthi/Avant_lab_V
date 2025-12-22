@@ -1,5 +1,5 @@
--- Avant_lab_V lib/storage.lua | Version 107.0
--- FIX: Implemented User Configurable Load Behavior (Play/Stop)
+-- Avant_lab_V lib/storage.lua | Version 107.2
+-- FIX: Smart Sequencer Restore (Respects Play/Stop state, fixes Empty vs Stopped)
 
 local Storage = {}
 
@@ -55,18 +55,31 @@ function Storage.load_data(state, pset_id)
       state.main_presets_data = pack.main_pre or state.main_presets_data
       state.main_presets_status = pack.main_stat or state.main_presets_status
       
-      -- [FIX] Load Behavior: Sequencers
-      local seq_behavior = params:get("load_behavior_seqs") -- 1=Stop, 2=Play
+      -- Load Behavior: Sequencers
+      local seq_behavior = params:get("load_behavior_seqs") -- 1=Stop, 2=Play(Resume)
       
       if pack.main_rec then 
          state.main_rec_slots = pack.main_rec
          for i=1,4 do 
-            if state.main_rec_slots[i].state > 0 and seq_behavior == 2 then
-               state.main_rec_slots[i].state = 2 -- Play
-               state.main_rec_slots[i].start_time = util.time()
-               state.main_rec_slots[i].step = 1
+            local s = state.main_rec_slots[i]
+            local has_data = s.data and #s.data > 0
+            
+            if has_data then
+               if seq_behavior == 2 then
+                  -- Resume Logic: Only play if it was active (1=Rec, 2=Play, 4=Dub)
+                  if s.state == 1 or s.state == 2 or s.state == 4 then
+                     s.state = 2 -- Play
+                     s.start_time = util.time()
+                     s.step = 1
+                  else
+                     s.state = 3 -- Stop (Loaded but waiting)
+                  end
+               else
+                  -- Force Stop Logic
+                  s.state = 3 -- Stop (Loaded but waiting)
+               end
             else
-               state.main_rec_slots[i].state = 0 -- Stop
+               s.state = 0 -- Empty
             end
          end 
       end
@@ -77,18 +90,29 @@ function Storage.load_data(state, pset_id)
       if pack.tape_rec then 
          state.tape_rec_slots = pack.tape_rec
          for i=1,4 do 
-            if state.tape_rec_slots[i].state > 0 and seq_behavior == 2 then
-               state.tape_rec_slots[i].state = 2 -- Play
-               state.tape_rec_slots[i].start_time = util.time()
-               state.tape_rec_slots[i].step = 1
+            local s = state.tape_rec_slots[i]
+            local has_data = s.data and #s.data > 0
+            
+            if has_data then
+               if seq_behavior == 2 then
+                  if s.state == 1 or s.state == 2 or s.state == 4 then
+                     s.state = 2 -- Play
+                     s.start_time = util.time()
+                     s.step = 1
+                  else
+                     s.state = 3 -- Stop
+                  end
+               else
+                  s.state = 3 -- Stop
+               end
             else
-               state.tape_rec_slots[i].state = 0 -- Stop
+               s.state = 0 -- Empty
             end
          end 
       end
       
-      -- [FIX] Load Behavior: Reels
-      local reel_behavior = params:get("load_behavior_reels") -- 1=Stop, 2=Play
+      -- Load Behavior: Reels
+      local reel_behavior = params:get("load_behavior_reels") -- 1=Stop, 2=Play(Resume)
       
       if pack.tracks then
          for i=1, 4 do
@@ -121,11 +145,15 @@ function Storage.load_data(state, pset_id)
                  state.tape_filenames[i] = loaded_t.file_path:match("^.+/(.+)$")
                  state.tracks[i].is_dirty = false
                  
-                 -- Apply Load Behavior
+                 -- Smart State Restore for Reels
                  if reel_behavior == 2 then
-                    state.tracks[i].state = 3 -- Play
+                    if loaded_t.state == 2 or loaded_t.state == 3 or loaded_t.state == 4 then
+                       state.tracks[i].state = 3 -- Play
+                    else
+                       state.tracks[i].state = 5 -- Stop
+                    end
                  else
-                    state.tracks[i].state = 5 -- Ready/Stop
+                    state.tracks[i].state = 5 -- Force Stop
                  end
               else
                  state.tracks[i].state = 1 
