@@ -1,5 +1,5 @@
--- Avant_lab_V lib/grid.lua | Version 108.0
--- FIX: Reverted Presets to Sound-Only (Removed Sequencer Save/Load from Grid Buttons)
+-- Avant_lab_V lib/grid.lua | Version 108.2
+-- FIX: Visual Bleed Fixed (Replaced faulty Lua ternary logic in Redraw)
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -87,11 +87,22 @@ function Grid.redraw(state)
 
   if is_tape_view then draw_tape_view(state) else draw_main_view(state) end
 
-  local rec_slots = is_tape_view and state.tape_rec_slots or state.main_rec_slots
-  local presets_status = is_tape_view and state.tape_presets_status or state.main_presets_status
-  local preset_selected = is_tape_view and state.tape_preset_selected or state.main_preset_selected
-  local morph_active = is_tape_view and state.morph_tape_active or state.morph_main_active
-  local morph_slot = is_tape_view and state.morph_tape_slot or state.morph_main_slot
+  -- [FIX] Explicit Variable Assignment (Avoids Lua 'and/or' trap)
+  local rec_slots, presets_status, preset_selected, morph_active, morph_slot
+  
+  if is_tape_view then
+     rec_slots = state.tape_rec_slots
+     presets_status = state.tape_presets_status
+     preset_selected = state.tape_preset_selected
+     morph_active = state.morph_tape_active
+     morph_slot = state.morph_tape_slot
+  else
+     rec_slots = state.main_rec_slots
+     presets_status = state.main_presets_status
+     preset_selected = state.main_preset_selected
+     morph_active = state.morph_main_active
+     morph_slot = state.morph_main_slot
+  end
 
   -- --- ROW 7: PERFORMANCE ---
   local now = util.time()
@@ -112,7 +123,6 @@ function Grid.redraw(state)
      local x = i + 4; local st = presets_status[i]; local b = 2 
      if st==1 then b=6 end
      
-     -- Only show selection/morph if preset exists
      if st == 1 then
         if preset_selected == i then b = 15 end
         if morph_active and morph_slot == i then b = 15 end
@@ -276,7 +286,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
            else is_current = (state.main_preset_selected == slot) end
            
            if presets_status[slot] == 0 then
-             -- SAVE (SOUND ONLY)
+             -- SAVE (Sound Only)
              if is_tape_view then
                 local saved_tracks = {}
                 for i=1,4 do local t = state.tracks[i]; saved_tracks[i] = {speed=t.speed, vol=t.vol, loop_start=t.loop_start, loop_end=t.loop_end, state=t.state, overdub=t.overdub, file_path=t.file_path, l_low=t.l_low, l_high=t.l_high, l_filter=t.l_filter, l_pan=t.l_pan, l_width=t.l_width} end
@@ -295,7 +305,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
              end
              presets_status[slot] = 1
            elseif is_current then
-              -- UPDATE (SOUND ONLY)
+              -- UPDATE (Sound Only)
               if is_tape_view then
                 local saved_tracks = {}
                 for i=1,4 do local t = state.tracks[i]; saved_tracks[i] = {speed=t.speed, vol=t.vol, loop_start=t.loop_start, loop_end=t.loop_end, state=t.state, overdub=t.overdub, file_path=t.file_path, l_low=t.l_low, l_high=t.l_high, l_filter=t.l_filter, l_pan=t.l_pan, l_width=t.l_width} end
@@ -311,7 +321,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                 }
               end
            else
-              -- RECALL (SOUND ONLY - NO SEQUENCER TOUCHED)
+              -- RECALL (Sound Only)
               if is_tape_view then
                  state.morph_tape_src = {}; for i=1,4 do state.morph_tape_src[i] = {speed=state.tracks[i].speed, vol=state.tracks[i].vol, l_low=state.tracks[i].l_low, l_high=state.tracks[i].l_high, l_filter=state.tracks[i].l_filter, l_pan=state.tracks[i].l_pan, l_width=state.tracks[i].l_width} end
                  state.morph_tape_active = true; state.morph_tape_slot = slot; state.morph_tape_start_time = util.time(); state.tape_preset_selected = slot
