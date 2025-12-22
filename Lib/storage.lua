@@ -1,5 +1,5 @@
--- Avant_lab_V lib/storage.lua | Version 94.1
--- FIX: Sync Mixer Params on Load
+-- Avant_lab_V lib/storage.lua | Version 107.0
+-- FIX: Implemented User Configurable Load Behavior (Play/Stop)
 
 local Storage = {}
 
@@ -49,21 +49,46 @@ function Storage.load_data(state, pset_id)
   if not pset_id then return end
   local filename = _path.data .. "Avant_lab_V/" .. pset_id .. ".data"
   
-  for i=1, 4 do
-    if state.main_rec_slots[i] then state.main_rec_slots[i].state = 0; state.main_rec_slots[i].step = 1 end
-    if state.tape_rec_slots[i] then state.tape_rec_slots[i].state = 0; state.tape_rec_slots[i].step = 1 end
-  end
-  
   if util.file_exists(filename) then
     local pack = tab.load(filename)
     if pack then
       state.main_presets_data = pack.main_pre or state.main_presets_data
       state.main_presets_status = pack.main_stat or state.main_presets_status
-      if pack.main_rec then state.main_rec_slots = pack.main_rec; for i=1,4 do state.main_rec_slots[i].state = 0 end end
+      
+      -- [FIX] Load Behavior: Sequencers
+      local seq_behavior = params:get("load_behavior_seqs") -- 1=Stop, 2=Play
+      
+      if pack.main_rec then 
+         state.main_rec_slots = pack.main_rec
+         for i=1,4 do 
+            if state.main_rec_slots[i].state > 0 and seq_behavior == 2 then
+               state.main_rec_slots[i].state = 2 -- Play
+               state.main_rec_slots[i].start_time = util.time()
+               state.main_rec_slots[i].step = 1
+            else
+               state.main_rec_slots[i].state = 0 -- Stop
+            end
+         end 
+      end
       
       state.tape_presets_data = pack.tape_pre or state.tape_presets_data
       state.tape_presets_status = pack.tape_stat or state.tape_presets_status
-      if pack.tape_rec then state.tape_rec_slots = pack.tape_rec; for i=1,4 do state.tape_rec_slots[i].state = 0 end end
+      
+      if pack.tape_rec then 
+         state.tape_rec_slots = pack.tape_rec
+         for i=1,4 do 
+            if state.tape_rec_slots[i].state > 0 and seq_behavior == 2 then
+               state.tape_rec_slots[i].state = 2 -- Play
+               state.tape_rec_slots[i].start_time = util.time()
+               state.tape_rec_slots[i].step = 1
+            else
+               state.tape_rec_slots[i].state = 0 -- Stop
+            end
+         end 
+      end
+      
+      -- [FIX] Load Behavior: Reels
+      local reel_behavior = params:get("load_behavior_reels") -- 1=Stop, 2=Play
       
       if pack.tracks then
          for i=1, 4 do
@@ -77,14 +102,12 @@ function Storage.load_data(state, pset_id)
               state.tracks[i].overdub = loaded_t.overdub
               state.tracks[i].xfade = loaded_t.xfade or 0.05
               
-              -- Mixer Params Load
               state.tracks[i].l_low = loaded_t.l_low or 0
               state.tracks[i].l_high = loaded_t.l_high or 0
               state.tracks[i].l_filter = loaded_t.l_filter or 0.5
               state.tracks[i].l_pan = loaded_t.l_pan or 0
               state.tracks[i].l_width = loaded_t.l_width or 1
               
-              -- [FIX] FORCE PARAM SYNC
               params:set("l"..i.."_vol", loaded_t.vol)
               params:set("l"..i.."_low", loaded_t.l_low or 0)
               params:set("l"..i.."_high", loaded_t.l_high or 0)
@@ -95,9 +118,15 @@ function Storage.load_data(state, pset_id)
               if loaded_t.file_path and util.file_exists(loaded_t.file_path) then
                  engine.buffer_read(i, loaded_t.file_path)
                  state.tracks[i].file_path = loaded_t.file_path
-                 state.tracks[i].state = 5 
                  state.tape_filenames[i] = loaded_t.file_path:match("^.+/(.+)$")
                  state.tracks[i].is_dirty = false
+                 
+                 -- Apply Load Behavior
+                 if reel_behavior == 2 then
+                    state.tracks[i].state = 3 -- Play
+                 else
+                    state.tracks[i].state = 5 -- Ready/Stop
+                 end
               else
                  state.tracks[i].state = 1 
                  state.tracks[i].file_path = nil
