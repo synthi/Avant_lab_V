@@ -1,5 +1,5 @@
--- Avant_lab_V lib/graphics.lua | Version 105.11
--- FIX: Page 3 Monitor Display in dB (Applied correctly)
+-- Avant_lab_V lib/graphics.lua | Version 105.12
+-- FIX: Rec Input Display Range (+12dB)
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -236,7 +236,10 @@ function Graphics.draw(state)
        local dir_sym = speed < 0 and "<<" or ">>"
        draw_right_param_pair("SPEED", string.format("%s %.2f", dir_sym, math.abs(speed)), "DUB", string.format("%.0f%%", (t.overdub or 0.5)*100))
      else
-       draw_left_e1("REC IN", string.format("%.1f dB", util.linlin(0,1,-60,6, t.rec_level or 1)))
+       -- [FIX] REC IN Display: 0-4.0 -> -60 to +12dB
+       local rec_db = util.linlin(0, 4.0, -60, 12, t.rec_level or 1)
+       draw_left_e1("REC IN", string.format("%.1fdB", rec_db))
+       
        local start_p = floor((t.loop_start or 0) * 100)
        local end_p = floor((t.loop_end or 1) * 100)
        draw_right_param_pair("START", start_p .. "%", "END", end_p .. "%")
@@ -392,7 +395,6 @@ function Graphics.draw(state)
     if not shift then
       draw_left_e1("REV", string.format("%.2f", params:get("reverb_mix") or 0))
       
-      -- [FIX] Page 3 Monitor in dB
       local mon_val = params:get("main_mon") or 0.833
       local mon_db = util.linlin(0, 1, -60, 12, mon_val)
       local mon_txt = string.format("%.1fdB", mon_db)
