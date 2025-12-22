@@ -1,5 +1,5 @@
--- Avant_lab_V.lua | Version 107.2
--- FIX: Main Monitor Parameter formatted as dB in System Menu
+-- Avant_lab_V.lua | Version 107.3
+-- FIX: Added Monitor Source Parameter
 
 engine.name = 'Avant_lab_V'
 
@@ -35,13 +35,12 @@ function init()
   params:add_separator("AVANT_LAB_V")
   
   -- 1. GLOBAL & MIX
-  params:add_group("GLOBAL / MIX", 11) 
+  params:add_group("GLOBAL / MIX", 12) -- Increased count
   params:add{type = "control", id = "feedback", name = "Feedback", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) engine.feedback(x) end}
   params:add{type = "control", id = "global_q", name = "Global Q", controlspec = controlspec.new(0.5, 80.0, 'exp', 0, 1.0), action = function(x) engine.global_q(x) end}
   params:add{type = "control", id = "reverb_mix", name = "Reverb Mix", controlspec = controlspec.new(0, 1, 'lin', 0.001, 1.0), action = function(x) engine.reverb_mix(x) end}
   params:add{type = "control", id = "system_dirt", name = "System Dirt", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.0), action = function(x) engine.system_dirt(x) end}
   
-  -- [FIX] Main Monitor with dB Formatter for System Menu
   params:add{
     type = "control", 
     id = "main_mon", 
@@ -53,6 +52,13 @@ function init()
         return string.format("%.1f dB", db)
     end,
     action = function(x) engine.main_mon(x) end
+  }
+  
+  -- [FIX] MONITOR SOURCE SELECTOR
+  params:add{type = "option", id = "main_source", name = "Monitor Source",
+    options = {"Clean In", "Post Tape", "Post Filter", "Post Reverb"},
+    default = 4,
+    action = function(x) engine.main_source(x-1) end
   }
   
   params:add{type = "control", id = "fader_slew", name = "Fader Slew", controlspec = controlspec.new(0.01, 10.0, 'exp', 0.01, 0.05, "s"), action = function(x) engine.fader_lag(x) end}
@@ -244,14 +250,6 @@ function redraw()
   screen.clear()
   Graphics.draw(state)
   screen.update()
-end
-
-function get_current_freqs()
-  local freqs = {}
-  for i=1, 16 do
-     table.insert(freqs, params:get("freq_"..i))
-  end
-  return freqs
 end
 
 function update_ping_pattern()
