@@ -1,5 +1,5 @@
--- Avant_lab_V lib/grid.lua | Version 106.10
--- FIX: Syntax Error Fixed (Missing 'end' in restore_sequencers)
+-- Avant_lab_V lib/grid.lua | Version 108.0
+-- FIX: Reverted Presets to Sound-Only (Removed Sequencer Save/Load from Grid Buttons)
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -107,9 +107,17 @@ function Grid.redraw(state)
      elseif r.state == 3 then b = 4 end
      g:led(i, 7, b)
   end
+  
   for i=1, 4 do -- Presets
      local x = i + 4; local st = presets_status[i]; local b = 2 
-     if st==1 then b=6 end; if preset_selected==i then b=15 end; if morph_active and morph_slot == i then b = 15 end
+     if st==1 then b=6 end
+     
+     -- Only show selection/morph if preset exists
+     if st == 1 then
+        if preset_selected == i then b = 15 end
+        if morph_active and morph_slot == i then b = 15 end
+     end
+     
      g:led(x, 7, b)
   end
   
@@ -169,61 +177,17 @@ local function record_event(state, x, y, z, is_tape_context)
   end
 end
 
--- [HELPER] Copy Sequencer Data for Preset Saving
-local function copy_sequencers(slots)
-    local copy = {}
-    for i=1, 4 do
-        local src = slots[i]
-        local dst = {data={}, duration=src.duration, state=src.state}
-        for _, ev in ipairs(src.data) do
-            table.insert(dst.data, {dt=ev.dt, x=ev.x, y=ev.y, z=ev.z, p=ev.p, tid=ev.tid})
-        end
-        copy[i] = dst
-    end
-    return copy
-end
-
--- [HELPER] Restore Sequencer Data for Preset Recall
-local function restore_sequencers(target_seqs, current_slots)
-    if not target_seqs then return end
-    for i=1, 4 do
-        local src = target_seqs[i]
-        local dst = current_slots[i]
-        
-        -- [FIX] CRITICAL PROTECTION:
-        -- If the sequencer is Active (Rec=1, Play=2, Dub=4), DO NOT overwrite it.
-        local is_active = (dst.state == 1 or dst.state == 2 or dst.state == 4)
-        
-        if not is_active then
-            dst.data = {}
-            for _, ev in ipairs(src.data) do table.insert(dst.data, ev) end
-            
-            if src.duration and src.duration > 0 then
-                dst.duration = src.duration
-            elseif #dst.data > 0 then
-                dst.duration = dst.data[#dst.data].dt + 0.1
-            else
-                dst.duration = 1.0
-            end
-
-            -- Auto-start if it was running in the saved preset (and we are currently stopped)
-            if src.state == 1 or src.state == 2 or src.state == 4 then
-                dst.state = 2
-                dst.start_time = util.time()
-                dst.step = 1
-            else
-                dst.state = 0
-            end
-        end
-    end -- [FIX] This 'end' was missing in previous version
-end
-
 function Grid.key(x, y, z, state, engine, simulated_page, target_track)
   local active_page = simulated_page or state.current_page
   local is_physical = (simulated_page == nil)
   
-  local is_tape_view = (active_page == 7) or (active_page == 8) or (active_page == 5 and state.time_page_focus == "TAPE")
-  if active_page == 9 and state.grid_tape_view_override then is_tape_view = true end
+  local is_tape_view = false
+  if simulated_page then
+     is_tape_view = (simulated_page == 7)
+  else
+     is_tape_view = (active_page == 7) or (active_page == 8) or (active_page == 5 and state.time_page_focus == "TAPE")
+     if active_page == 9 and state.grid_tape_view_override then is_tape_view = true end
+  end
   
   local rec_slots = is_tape_view and state.tape_rec_slots or state.main_rec_slots
   local presets_data = is_tape_view and state.tape_presets_data or state.main_presets_data
@@ -312,13 +276,11 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
            else is_current = (state.main_preset_selected == slot) end
            
            if presets_status[slot] == 0 then
+             -- SAVE (SOUND ONLY)
              if is_tape_view then
                 local saved_tracks = {}
                 for i=1,4 do local t = state.tracks[i]; saved_tracks[i] = {speed=t.speed, vol=t.vol, loop_start=t.loop_start, loop_end=t.loop_end, state=t.state, overdub=t.overdub, file_path=t.file_path, l_low=t.l_low, l_high=t.l_high, l_filter=t.l_filter, l_pan=t.l_pan, l_width=t.l_width} end
-                presets_data[slot] = {
-                    tracks = saved_tracks,
-                    seqs = copy_sequencers(state.tape_rec_slots)
-                }
+                presets_data[slot] = { tracks = saved_tracks }
                 state.tape_preset_selected = slot
              else
                 local saved_gains = {}; for i=1, 16 do saved_gains[i] = state.bands_gain[i] end
@@ -327,20 +289,17 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                     q = params:get("global_q"), 
                     scale_idx = params:get("scale_idx"), 
                     root_note = params:get("root_note"), 
-                    feedback = params:get("feedback"),
-                    seqs = copy_sequencers(state.main_rec_slots)
+                    feedback = params:get("feedback")
                 }
                 state.main_preset_selected = slot
              end
              presets_status[slot] = 1
            elseif is_current then
+              -- UPDATE (SOUND ONLY)
               if is_tape_view then
                 local saved_tracks = {}
                 for i=1,4 do local t = state.tracks[i]; saved_tracks[i] = {speed=t.speed, vol=t.vol, loop_start=t.loop_start, loop_end=t.loop_end, state=t.state, overdub=t.overdub, file_path=t.file_path, l_low=t.l_low, l_high=t.l_high, l_filter=t.l_filter, l_pan=t.l_pan, l_width=t.l_width} end
-                presets_data[slot] = {
-                    tracks = saved_tracks,
-                    seqs = copy_sequencers(state.tape_rec_slots)
-                }
+                presets_data[slot] = { tracks = saved_tracks }
               else
                 local saved_gains = {}; for i=1, 16 do saved_gains[i] = state.bands_gain[i] end
                 presets_data[slot] = { 
@@ -348,11 +307,11 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                     q = params:get("global_q"), 
                     scale_idx = params:get("scale_idx"), 
                     root_note = params:get("root_note"), 
-                    feedback = params:get("feedback"),
-                    seqs = copy_sequencers(state.main_rec_slots)
+                    feedback = params:get("feedback")
                 }
               end
            else
+              -- RECALL (SOUND ONLY - NO SEQUENCER TOUCHED)
               if is_tape_view then
                  state.morph_tape_src = {}; for i=1,4 do state.morph_tape_src[i] = {speed=state.tracks[i].speed, vol=state.tracks[i].vol, l_low=state.tracks[i].l_low, l_high=state.tracks[i].l_high, l_filter=state.tracks[i].l_filter, l_pan=state.tracks[i].l_pan, l_width=state.tracks[i].l_width} end
                  state.morph_tape_active = true; state.morph_tape_slot = slot; state.morph_tape_start_time = util.time(); state.tape_preset_selected = slot
@@ -366,8 +325,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                         end
                     end
                  end
-                 
-                 restore_sequencers(presets_data[slot].seqs, state.tape_rec_slots)
               else
                  state.morph_main_src = {}
                  for i=1,16 do state.morph_main_src[i] = state.bands_gain[i] or params:get("gain_"..i) or -60 end
@@ -378,8 +335,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                  for i=1, 16 do table.insert(state.morph_main_src_freqs, params:get("freq_"..i)) end
                  
                  state.morph_main_active = true; state.morph_main_slot = slot; state.morph_main_start_time = util.time(); state.main_preset_selected = slot
-                 
-                 restore_sequencers(presets_data[slot].seqs, state.main_rec_slots)
                  
                  local target = presets_data[slot]
                  if target and target.scale_idx then 
@@ -403,8 +358,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                  for i=1, 16 do table.insert(state.morph_main_src_freqs, params:get("freq_"..i)) end
                  
                  state.morph_main_active = true; state.morph_main_slot = prev; state.morph_main_start_time = util.time(); state.main_preset_selected = prev 
-                 
-                 restore_sequencers(presets_data[prev].seqs, state.main_rec_slots)
                  
                  local target = presets_data[prev]
                  if target and target.scale_idx then 
