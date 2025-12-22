@@ -1,7 +1,42 @@
--- Avant_lab_V lib/storage.lua | Version 107.2
--- FIX: Smart Sequencer Restore (Respects Play/Stop state, fixes Empty vs Stopped)
+-- Avant_lab_V lib/storage.lua | Version 107.4
+-- FIX: Robust System Save/Load for Sequencers (Compensates for Grid Preset Change)
 
 local Storage = {}
+
+-- [HELPER] Sanitize a single sequencer slot
+local function sanitize_sequencer(s)
+   if not s then return {data={}, state=0, step=1, duration=0, start_time=0} end
+   
+   if s.state == 0 or not s.data or #s.data == 0 then
+      s.state = 0
+      s.data = {}
+      s.duration = 0
+      s.step = 1
+      s.start_time = 0
+   else
+      for _, ev in ipairs(s.data) do
+         if not ev.dt or ev.dt < 0 then ev.dt = 0 end
+      end
+      if not s.duration or s.duration < s.data[#s.data].dt then
+         s.duration = s.data[#s.data].dt + 0.1
+      end
+   end
+   return s
+end
+
+-- [HELPER] Sanitize a preset slot
+local function sanitize_preset_data(p_data, p_status, type)
+   if p_status == 0 then return {} end
+   if not p_data then return {}, 0 end
+   
+   -- Compatibility: Remove 'seqs' field if present (cleanup old data)
+   if p_data.seqs then p_data.seqs = nil end
+   
+   if type == "main" and not p_data.gains then return {}, 0 end
+   if type == "tape" and not p_data.tracks then return {}, 0 end
+   
+   return p_data, 1
+end
 
 function Storage.save_data(state, pset_id)
   if not pset_id then return end
@@ -9,11 +44,10 @@ function Storage.save_data(state, pset_id)
       util.make_dir(_path.data .. "Avant_lab_V")
   end
   
-  -- Snapshot Logic: Save dirty tracks
+  -- Snapshot Logic
   for i=1, 4 do
      local t = state.tracks[i]
      local len = t.rec_len or 0
-     
      if len > 0.1 then
         if t.is_dirty then
            local timestamp = os.date("%y%m%d%H%M%S")
@@ -32,10 +66,10 @@ function Storage.save_data(state, pset_id)
   local filename = _path.data .. "Avant_lab_V/" .. pset_id .. ".data"
   
   local pack = {
-    main_rec = state.main_rec_slots,
+    main_rec = state.main_rec_slots, -- CRITICAL: Saving current sequencers here
     main_pre = state.main_presets_data,
     main_stat = state.main_presets_status,
-    tape_rec = state.tape_rec_slots,
+    tape_rec = state.tape_rec_slots, -- CRITICAL: Saving current sequencers here
     tape_pre = state.tape_presets_data,
     tape_stat = state.tape_presets_status,
     tracks = state.tracks 
@@ -52,67 +86,58 @@ function Storage.load_data(state, pset_id)
   if util.file_exists(filename) then
     local pack = tab.load(filename)
     if pack then
+      
+      -- 1. LOAD & SANITIZE PRESETS
       state.main_presets_data = pack.main_pre or state.main_presets_data
       state.main_presets_status = pack.main_stat or state.main_presets_status
-      
-      -- Load Behavior: Sequencers
-      local seq_behavior = params:get("load_behavior_seqs") -- 1=Stop, 2=Play(Resume)
-      
+      for i=1, 4 do
+         local d, s = sanitize_preset_data(state.main_presets_data[i], state.main_presets_status[i], "main")
+         state.main_presets_data[i] = d
+         state.main_presets_status[i] = s
+      end
+
+      -- 2. LOAD & SANITIZE MAIN SEQUENCERS
+      local seq_behavior = params:get("load_behavior_seqs")
       if pack.main_rec then 
-         state.main_rec_slots = pack.main_rec
          for i=1,4 do 
+            state.main_rec_slots[i] = sanitize_sequencer(pack.main_rec[i])
             local s = state.main_rec_slots[i]
-            local has_data = s.data and #s.data > 0
-            
-            if has_data then
-               if seq_behavior == 2 then
-                  -- Resume Logic: Only play if it was active (1=Rec, 2=Play, 4=Dub)
-                  if s.state == 1 or s.state == 2 or s.state == 4 then
-                     s.state = 2 -- Play
-                     s.start_time = util.time()
-                     s.step = 1
-                  else
-                     s.state = 3 -- Stop (Loaded but waiting)
-                  end
-               else
-                  -- Force Stop Logic
-                  s.state = 3 -- Stop (Loaded but waiting)
+            if s.state > 0 then 
+               if seq_behavior == 2 then 
+                  s.state = 2; s.start_time = util.time(); s.step = 1
+               else 
+                  s.state = 3
                end
-            else
-               s.state = 0 -- Empty
             end
          end 
       end
       
+      -- 3. LOAD & SANITIZE TAPE PRESETS
       state.tape_presets_data = pack.tape_pre or state.tape_presets_data
       state.tape_presets_status = pack.tape_stat or state.tape_presets_status
+      for i=1, 4 do
+         local d, s = sanitize_preset_data(state.tape_presets_data[i], state.tape_presets_status[i], "tape")
+         state.tape_presets_data[i] = d
+         state.tape_presets_status[i] = s
+      end
       
+      -- 4. LOAD & SANITIZE TAPE SEQUENCERS
       if pack.tape_rec then 
-         state.tape_rec_slots = pack.tape_rec
          for i=1,4 do 
+            state.tape_rec_slots[i] = sanitize_sequencer(pack.tape_rec[i])
             local s = state.tape_rec_slots[i]
-            local has_data = s.data and #s.data > 0
-            
-            if has_data then
+            if s.state > 0 then
                if seq_behavior == 2 then
-                  if s.state == 1 or s.state == 2 or s.state == 4 then
-                     s.state = 2 -- Play
-                     s.start_time = util.time()
-                     s.step = 1
-                  else
-                     s.state = 3 -- Stop
-                  end
+                  s.state = 2; s.start_time = util.time(); s.step = 1
                else
-                  s.state = 3 -- Stop
+                  s.state = 3
                end
-            else
-               s.state = 0 -- Empty
             end
          end 
       end
       
-      -- Load Behavior: Reels
-      local reel_behavior = params:get("load_behavior_reels") -- 1=Stop, 2=Play(Resume)
+      -- 5. LOAD TRACKS & REELS
+      local reel_behavior = params:get("load_behavior_reels")
       
       if pack.tracks then
          for i=1, 4 do
@@ -145,15 +170,14 @@ function Storage.load_data(state, pset_id)
                  state.tape_filenames[i] = loaded_t.file_path:match("^.+/(.+)$")
                  state.tracks[i].is_dirty = false
                  
-                 -- Smart State Restore for Reels
                  if reel_behavior == 2 then
                     if loaded_t.state == 2 or loaded_t.state == 3 or loaded_t.state == 4 then
-                       state.tracks[i].state = 3 -- Play
+                       state.tracks[i].state = 3 
                     else
-                       state.tracks[i].state = 5 -- Stop
+                       state.tracks[i].state = 5 
                     end
                  else
-                    state.tracks[i].state = 5 -- Force Stop
+                    state.tracks[i].state = 5 
                  end
               else
                  state.tracks[i].state = 1 
