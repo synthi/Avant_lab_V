@@ -1,5 +1,5 @@
--- Avant_lab_V lib/grid.lua | Version 108.2
--- FIX: Visual Bleed Fixed (Replaced faulty Lua ternary logic in Redraw)
+-- Avant_lab_V lib/grid.lua | Version 109.0
+-- FIX: Grid Transport respects Rec Behavior (Rec->Dub or Rec->Play)
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -87,7 +87,6 @@ function Grid.redraw(state)
 
   if is_tape_view then draw_tape_view(state) else draw_main_view(state) end
 
-  -- [FIX] Explicit Variable Assignment (Avoids Lua 'and/or' trap)
   local rec_slots, presets_status, preset_selected, morph_active, morph_slot
   
   if is_tape_view then
@@ -443,6 +442,15 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                     local len = raw_time * speed_factor
                     if len < 0.1 then len = 0.1 end; if len > 60.0 then len = 60.0 end
                     state.tracks[trk].rec_len = len; state.tracks[trk].loop_start = 0; state.tracks[trk].loop_end = 1
+                    
+                    -- [FIX] GRID TRANSPORT: Check Rec Behavior Param (2 = Rec->Dub)
+                    local behavior = params:get("rec_behavior")
+                    if behavior == 2 then
+                       state.tracks[trk].state = 4 -- Go to Overdub
+                       state.tracks[trk].is_dirty = true
+                    else
+                       state.tracks[trk].state = 3 -- Go to Play
+                    end
                  end
                  Loopers.refresh(trk, state)
               end
