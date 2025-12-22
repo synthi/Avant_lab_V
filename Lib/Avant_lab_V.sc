@@ -1,5 +1,5 @@
-// Engine_Avant_lab_V.sc | Version 95.1
-// FIX: Klangfilm Curve (rs=4.0), Dynamic Inductor Saturation (Clean at 0dB)
+// Engine_Avant_lab_V.sc | Version 95.2
+// FIX: Main Monitor Range Expanded (-60dB to +12dB)
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -56,7 +56,7 @@ Engine_Avant_lab_V : CroneEngine {
             
             var system_dirt=\system_dirt.kr(0);
             var filter_drift=\filter_drift.kr(0);
-            var main_mon=\main_mon.kr(1);
+            var main_mon=\main_mon.kr(0.833); // Default approx 0dB
             
             var l_rec = [\l1_rec.kr(0), \l2_rec.kr(0), \l3_rec.kr(0), \l4_rec.kr(0)];
             var l_play = [\l1_play.kr(0), \l2_play.kr(0), \l3_play.kr(0), \l4_play.kr(0)];
@@ -71,7 +71,6 @@ Engine_Avant_lab_V : CroneEngine {
             var l_xfade = [\l1_xfade.kr(0.05), \l2_xfade.kr(0.05), \l3_xfade.kr(0.05), \l4_xfade.kr(0.05)];
             var l_brake = [\l1_brake.kr(0), \l2_brake.kr(0), \l3_brake.kr(0), \l4_brake.kr(0)];
             
-            // Mixer Params
             var l_low = [\l1_low.kr(0), \l2_low.kr(0), \l3_low.kr(0), \l4_low.kr(0)];
             var l_high = [\l1_high.kr(0), \l2_high.kr(0), \l3_high.kr(0), \l4_high.kr(0)];
             var l_filter = [\l1_filter.kr(0.5), \l2_filter.kr(0.5), \l3_filter.kr(0.5), \l4_filter.kr(0.5)];
@@ -91,8 +90,8 @@ Engine_Avant_lab_V : CroneEngine {
             var aux_feedback_in, loop_outputs_sum, loop_aux_sum;
             var tap_clean, tap_post_tape, tap_post_filter, tap_post_reverb;
             var dirt_sig, hiss_vol, hum_vol, dust_dens, dust_sig, dust_vol;
-            
             var master_out, gonio_sig;
+            var main_mon_amp; // New variable for expanded gain
             
             var trk1_in = InFeedback.ar(t1_bus, 2);
             var trk2_in = InFeedback.ar(t2_bus, 2);
@@ -222,7 +221,6 @@ Engine_Avant_lab_V : CroneEngine {
                 var c_lpf, c_hpf, f_lpf, f_hpf;
                 var mid, side, new_l, new_r;
                 
-                // Dynamic Saturation Variables
                 var eq_max_db, sat_drive;
                 
                 target_buf = Select.kr(gate_rec > 0.1, [dummy_buf, b_idx]);
@@ -272,8 +270,6 @@ Engine_Avant_lab_V : CroneEngine {
                 
                 output_sig = play_sig * gate_play.lag(0.05);
                 
-                // [FIX] KLANGFILM STYLE EQ (Very Wide Curve)
-                // rs = 4.0 means slope S = 0.25. Extremely gentle "broadcasting" shelf.
                 output_sig = BLowShelf.ar(output_sig, 60, 4.0, trk_low);
                 output_sig = BHiShelf.ar(output_sig, 10000, 4.0, trk_high);
                 
@@ -284,10 +280,6 @@ Engine_Avant_lab_V : CroneEngine {
                 output_sig = LPF.ar(output_sig, f_lpf);
                 output_sig = HPF.ar(output_sig, f_hpf);
                 
-                // [FIX] DYNAMIC INDUCTOR SATURATION
-                // Calculates the max absolute gain from either EQ band.
-                // 0dB -> drive = 1.0 (Clean)
-                // 18dB -> drive = 2.0 (Saturated)
                 eq_max_db = trk_low.abs.max(trk_high.abs);
                 sat_drive = 1.0 + (eq_max_db / 18.0).squared;
                 
@@ -308,7 +300,11 @@ Engine_Avant_lab_V : CroneEngine {
             
             LocalOut.ar(final_signal);
             
-            master_out = Limiter.ar((final_signal * main_mon) + loop_outputs_sum, 0.95);
+            // [FIX] MAIN MONITOR EXPANSION
+            // Convert 0-1 input to -60dB to +12dB, then to linear amplitude
+            main_mon_amp = LinLin.kr(main_mon, 0, 1, -60, 12).dbamp * (main_mon > 0.001);
+            
+            master_out = Limiter.ar((final_signal * main_mon_amp) + loop_outputs_sum, 0.95);
             
             Out.ar(aux_return_bus_idx, loop_aux_sum);
             Out.ar(out_bus, master_out);
