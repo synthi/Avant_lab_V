@@ -1,5 +1,5 @@
--- Avant_lab_V.lua | Version 108.2
--- FIX: Stable Visual Slew (No flickering)
+-- Avant_lab_V.lua | Version 108.3
+-- FIX: Band Frequency Range Increased to 18kHz
 
 engine.name = 'Avant_lab_V'
 
@@ -16,6 +16,7 @@ g = grid.connect()
 local DIV_VALUES = {4, 2, 1, 0.5, 0.25, 0.125, 0.0625, 0.03125}
 local SRC_OPTIONS = {"Clean Input", "Post Tape", "Post Filter", "Post Reverb", "Track 1", "Track 2", "Track 3", "Track 4"}
 local MAX_BUFFER_SEC = 60.0 
+local FPS = 20
 
 state = Globals.new()
 
@@ -46,7 +47,8 @@ function load_scale(idx)
   local ratio = 2 ^ ((root - 1) / 12)
   for i=1, 16 do
     local base = s.data[i]
-    if base then params:set("freq_"..i, util.clamp(base * ratio, 20, 12000)) end
+    -- [FIX] Clamp to new max 18000
+    if base then params:set("freq_"..i, util.clamp(base * ratio, 20, 18000)) end
   end
 end
 
@@ -57,12 +59,12 @@ function get_target_freqs(scale_idx, root_note)
   local freqs = {}
   for i=1, 16 do
      local base = s.data[i]
-     if base then table.insert(freqs, util.clamp(base * ratio, 20, 12000)) end
+     -- [FIX] Clamp to new max 18000
+     if base then table.insert(freqs, util.clamp(base * ratio, 20, 18000)) end
   end
   return freqs
 end
 
--- [FIX] STABLE VISUAL SLEW
 function update_visual_slew()
    if state.morph_main_active then
       for i=1, 16 do state.visual_gain[i] = state.bands_gain[i] end
@@ -70,16 +72,11 @@ function update_visual_slew()
    end
 
    local slew_time = params:get("fader_slew")
-   
-   -- If slew is very fast, skip interpolation
    if slew_time < 0.05 then
       for i=1, 16 do state.visual_gain[i] = state.bands_gain[i] end
       return
    end
 
-   -- Asymptotic smoothing factor (0.0 to 1.0)
-   -- 0.05s -> Fast (0.5)
-   -- 2.0s -> Slow (0.02)
    local factor = 0.04 / slew_time
    if factor > 0.8 then factor = 0.8 end
    if factor < 0.005 then factor = 0.005 end
@@ -87,8 +84,6 @@ function update_visual_slew()
    for i=1, 16 do
       local target = state.bands_gain[i]
       local current = state.visual_gain[i]
-      
-      -- Simple 1-pole filter logic (Never overshoots)
       if math.abs(target - current) > 0.01 then
          state.visual_gain[i] = current + ((target - current) * factor)
       else
@@ -255,6 +250,8 @@ function rec_play_tick_main(slot)
            if r.step < #r.data then next_time = (r.data[r.step+1].dt - event.dt) / rate
            else next_time = (r.duration - event.dt) / rate end
            
+           if next_time < 0 then next_time = 0 end
+           
            if event.x and event.y and event.z then
               Grid.key(event.x, event.y, event.z, state, engine, 1) 
            end
@@ -277,6 +274,8 @@ function rec_play_tick_tape(slot)
            local next_time = 0
            if r.step < #r.data then next_time = (r.data[r.step+1].dt - event.dt) / rate
            else next_time = (r.duration - event.dt) / rate end
+           
+           if next_time < 0 then next_time = 0 end
            
            if event.x and event.y and event.z then
               Grid.key(event.x, event.y, event.z, state, engine, 7, event.tid)
@@ -440,7 +439,7 @@ function init()
     local default_freq = 100
     if Scales and Scales.list and Scales.list[1] and Scales.list[1].data then default_freq = Scales.list[1].data[i] end
     params:add{type = "control", id = "gain_"..i, name = "Band "..i.." Gain", controlspec = controlspec.new(-60, 0, 'lin', 0.1, -60, "dB"), action = function(x) engine.band_gain(i-1, x); state.bands_gain[i] = x end}
-    params:add{type = "control", id = "freq_"..i, name = "Band "..i.." Freq", controlspec = controlspec.new(20, 12000, 'exp', 0, default_freq, "Hz"), action = function(x) engine.band_freq(i-1, x) end}
+    params:add{type = "control", id = "freq_"..i, name = "Band "..i.." Freq", controlspec = controlspec.new(20, 18000, 'exp', 0, default_freq, "Hz"), action = function(x) engine.band_freq(i-1, x) end}
   end
   
   -- [NEW] TAPE LIBRARY GROUP
@@ -508,7 +507,7 @@ function init()
   update_timer.event = function() 
     update_morph_main() 
     update_morph_tape()
-    update_visual_slew() -- [FIX] Added visual slew update
+    update_visual_slew() 
   end
   update_timer:start()
   
