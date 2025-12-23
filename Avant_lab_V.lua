@@ -1,5 +1,5 @@
--- Avant_lab_V.lua | Version 107.5
--- FIX: Reordered Functions (Defined before Init to prevent nil error)
+-- Avant_lab_V.lua | Version 108.2
+-- FIX: Stable Visual Slew (No flickering)
 
 engine.name = 'Avant_lab_V'
 
@@ -19,7 +19,7 @@ local MAX_BUFFER_SEC = 60.0
 
 state = Globals.new()
 
--- [HELPER FUNCTIONS DEFINED BEFORE INIT]
+-- [HELPER FUNCTIONS]
 
 function get_current_freqs()
   local freqs = {}
@@ -60,6 +60,41 @@ function get_target_freqs(scale_idx, root_note)
      if base then table.insert(freqs, util.clamp(base * ratio, 20, 12000)) end
   end
   return freqs
+end
+
+-- [FIX] STABLE VISUAL SLEW
+function update_visual_slew()
+   if state.morph_main_active then
+      for i=1, 16 do state.visual_gain[i] = state.bands_gain[i] end
+      return
+   end
+
+   local slew_time = params:get("fader_slew")
+   
+   -- If slew is very fast, skip interpolation
+   if slew_time < 0.05 then
+      for i=1, 16 do state.visual_gain[i] = state.bands_gain[i] end
+      return
+   end
+
+   -- Asymptotic smoothing factor (0.0 to 1.0)
+   -- 0.05s -> Fast (0.5)
+   -- 2.0s -> Slow (0.02)
+   local factor = 0.04 / slew_time
+   if factor > 0.8 then factor = 0.8 end
+   if factor < 0.005 then factor = 0.005 end
+   
+   for i=1, 16 do
+      local target = state.bands_gain[i]
+      local current = state.visual_gain[i]
+      
+      -- Simple 1-pole filter logic (Never overshoots)
+      if math.abs(target - current) > 0.01 then
+         state.visual_gain[i] = current + ((target - current) * factor)
+      else
+         state.visual_gain[i] = target
+      end
+   end
 end
 
 function update_morph_main()
@@ -180,6 +215,22 @@ function update_morph_tape()
   end
 end
 
+function osc.event(path, args, from)
+  if path == "/ping_pulse" then
+    table.insert(state.ping_pulses, {t0 = util.time(), amp = args[1], jitter = params:get("ping_jitter")})
+  elseif path == "/buffer_info" then
+    local idx = math.floor(args[1])
+    local dur = args[2]
+    state.tracks[idx].rec_len = dur
+    Loopers.refresh(idx, state)
+    print("Reel " .. idx .. " duration updated: " .. dur)
+  end
+end
+
+function enc(n, d) Controls.enc(n, d, state) end
+function key(n, z) Controls.key(n, z, state) end
+g.key = function(x, y, z) Grid.key(x, y, z, state, engine) end
+
 function ping_tick()
   while true do
     local mode = params:get("ping_mode")
@@ -204,8 +255,6 @@ function rec_play_tick_main(slot)
            if r.step < #r.data then next_time = (r.data[r.step+1].dt - event.dt) / rate
            else next_time = (r.duration - event.dt) / rate end
            
-           if next_time < 0 then next_time = 0 end
-           
            if event.x and event.y and event.z then
               Grid.key(event.x, event.y, event.z, state, engine, 1) 
            end
@@ -228,8 +277,6 @@ function rec_play_tick_tape(slot)
            local next_time = 0
            if r.step < #r.data then next_time = (r.data[r.step+1].dt - event.dt) / rate
            else next_time = (r.duration - event.dt) / rate end
-           
-           if next_time < 0 then next_time = 0 end
            
            if event.x and event.y and event.z then
               Grid.key(event.x, event.y, event.z, state, engine, 7, event.tid)
@@ -361,7 +408,16 @@ function init()
     params:add{type = "control", id = "l"..i.."_start", name = "Start Point", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) state.tracks[i].loop_start = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_end", name = "End Point", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 1.0), action = function(x) state.tracks[i].loop_end = x; Loopers.refresh(i, state) end}
     params:add{type = "option", id = "l"..i.."_src", name = "Input Source", options = SRC_OPTIONS, default = 1, action = function(x) state.tracks[i].src_sel = x - 1; Loopers.refresh(i, state) end}
-    params:add{type = "control", id = "l"..i.."_rec_lvl", name = "Input Level", controlspec = controlspec.new(0, 4.0, 'lin', 0.001, 1.0), action = function(x) state.tracks[i].rec_level = x end}
+    
+    -- [FIX] REC LEVEL DEFINITION (dB Scale: -60 to +12)
+    params:add{
+        type = "control", 
+        id = "l"..i.."_rec_lvl", 
+        name = "Input Level", 
+        controlspec = controlspec.new(-60, 12, 'lin', 0.1, 0, "dB"), 
+        action = function(x) state.tracks[i].rec_level = x end
+    }
+    
     params:add{type = "control", id = "l"..i.."_aux", name = "Aux Send", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) state.tracks[i].aux_send = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_xfade", name = "Crossfade", controlspec = controlspec.new(0.001, 1.0, 'exp', 0.001, 0.05, "s"), action = function(x) state.tracks[i].xfade = x; Loopers.refresh(i, state) end}
     
@@ -452,6 +508,7 @@ function init()
   update_timer.event = function() 
     update_morph_main() 
     update_morph_tape()
+    update_visual_slew() -- [FIX] Added visual slew update
   end
   update_timer:start()
   
@@ -473,78 +530,3 @@ function redraw()
   Graphics.draw(state)
   screen.update()
 end
-
-function osc.event(path, args, from)
-  if path == "/ping_pulse" then
-    table.insert(state.ping_pulses, {t0 = util.time(), amp = args[1], jitter = params:get("ping_jitter")})
-  elseif path == "/buffer_info" then
-    local idx = math.floor(args[1])
-    local dur = args[2]
-    state.tracks[idx].rec_len = dur
-    Loopers.refresh(idx, state)
-    print("Reel " .. idx .. " duration updated: " .. dur)
-  end
-end
-
-function enc(n, d) Controls.enc(n, d, state) end
-function key(n, z) Controls.key(n, z, state) end
-g.key = function(x, y, z) Grid.key(x, y, z, state, engine) end
-
-function ping_tick()
-  while true do
-    local mode = params:get("ping_mode")
-    if mode == 2 and (params:get("ping_active") == 2) and params:get("ping_steps") > 0 then
-      state.ping_step_counter = (state.ping_step_counter or 0) % params:get("ping_steps") + 1
-      if state.ping_pattern[state.ping_step_counter] then engine.ping_sequence(1) end
-    end
-    clock.sync(DIV_VALUES[params:get("ping_div") or 3])
-  end
-end
-
-function rec_play_tick_main(slot)
-    while true do
-      local r = state.main_rec_slots[slot]
-      if r.state ~= 2 then clock.sleep(0.1) 
-      else
-         local event = r.data[r.step]
-         if event then
-           local rate = 2 ^ params:get("seq_rate_main")
-           if rate == 0 then rate = 0.001 end 
-           local next_time = 0
-           if r.step < #r.data then next_time = (r.data[r.step+1].dt - event.dt) / rate
-           else next_time = (r.duration - event.dt) / rate end
-           
-           if event.x and event.y and event.z then
-              Grid.key(event.x, event.y, event.z, state, engine, 1) 
-           end
-           if next_time > 0 then clock.sleep(next_time) end
-           r.step = r.step + 1; if r.step > #r.data then r.step = 1 end
-         else clock.sleep(0.1) end
-      end
-    end
-end
-
-function rec_play_tick_tape(slot)
-    while true do
-      local r = state.tape_rec_slots[slot]
-      if r.state ~= 2 then clock.sleep(0.1) 
-      else
-         local event = r.data[r.step]
-         if event then
-           local rate = 2 ^ params:get("seq_rate_tape")
-           if rate == 0 then rate = 0.001 end 
-           local next_time = 0
-           if r.step < #r.data then next_time = (r.data[r.step+1].dt - event.dt) / rate
-           else next_time = (r.duration - event.dt) / rate end
-           
-           if event.x and event.y and event.z then
-              Grid.key(event.x, event.y, event.z, state, engine, 7, event.tid)
-           end
-           if next_time > 0 then clock.sleep(next_time) end
-           r.step = r.step + 1; if r.step > #r.data then r.step = 1 end
-         else clock.sleep(0.1) end
-      end
-    end
-end
-
-Grid.start_playback = function(slot) end
