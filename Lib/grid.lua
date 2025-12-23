@@ -1,5 +1,7 @@
--- Avant_lab_V lib/grid.lua | Version 109.2
--- FIX: Grid Faders use Visual Gain (Slew), Ribbon Momentary Fix
+--- START OF FILE grid.lua.txt ---
+
+-- Avant_lab_V lib/grid.lua | Version 110.3
+-- FIX: Grid Transport respects Rec Behavior (Rec->Dub) & Length Calc fix
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -434,11 +436,28 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
               else
                  local st = state.tracks[trk].state
                  local next_st = 3 
-                 if st == 1 then next_st = 2 elseif st == 2 then next_st = 3 elseif st == 3 then next_st = 4 elseif st == 4 then next_st = 3 elseif st == 5 then next_st = 3 end
+                 
+                 -- [FIX] Rec Behavior Logic applied to Grid
+                 if st == 1 then 
+                    next_st = 2 
+                 elseif st == 2 then 
+                    -- Check Parameter
+                    if params:get("rec_behavior") == 2 then
+                       next_st = 4 -- Overdub
+                    else
+                       next_st = 3 -- Play
+                    end
+                 elseif st == 3 then next_st = 4 
+                 elseif st == 4 then next_st = 3 
+                 elseif st == 5 then next_st = 3 end
+                 
                  if next_st == 2 or next_st == 4 then state.tracks[trk].is_dirty = true; if next_st == 2 then state.tape_filenames[trk] = nil end end
                  state.tracks[trk].state = next_st
-                 if next_st == 2 then state.tracks[trk].start_abs_time = now
-                 elseif st == 2 and next_st == 3 then
+                 
+                 if next_st == 2 then 
+                    state.tracks[trk].start_abs_time = now
+                 elseif st == 2 and (next_st == 3 or next_st == 4) then
+                    -- [FIX] Calculate length if going to Play OR Overdub
                     local raw_time = now - (state.tracks[trk].start_abs_time or now)
                     local speed_factor = math.abs(state.tracks[trk].speed or 1)
                     if speed_factor < 0.01 then speed_factor = 1.0 end
