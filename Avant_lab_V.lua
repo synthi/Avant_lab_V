@@ -1,5 +1,5 @@
--- Avant_lab_V.lua | Version 108.3
--- FIX: Band Frequency Range Increased to 18kHz
+-- Avant_lab_V.lua | Version 203.0
+-- UPDATE: Max Loop Time increased to 120s.
 
 engine.name = 'Avant_lab_V'
 
@@ -15,7 +15,8 @@ g = grid.connect()
 
 local DIV_VALUES = {4, 2, 1, 0.5, 0.25, 0.125, 0.0625, 0.03125}
 local SRC_OPTIONS = {"Clean Input", "Post Tape", "Post Filter", "Post Reverb", "Track 1", "Track 2", "Track 3", "Track 4"}
-local MAX_BUFFER_SEC = 60.0 
+-- [CHANGE] Increased buffer size to 120 seconds
+local MAX_BUFFER_SEC = 120.0 
 local FPS = 20
 
 state = Globals.new()
@@ -47,7 +48,6 @@ function load_scale(idx)
   local ratio = 2 ^ ((root - 1) / 12)
   for i=1, 16 do
     local base = s.data[i]
-    -- [FIX] Clamp to new max 18000
     if base then params:set("freq_"..i, util.clamp(base * ratio, 20, 18000)) end
   end
 end
@@ -59,7 +59,6 @@ function get_target_freqs(scale_idx, root_note)
   local freqs = {}
   for i=1, 16 do
      local base = s.data[i]
-     -- [FIX] Clamp to new max 18000
      if base then table.insert(freqs, util.clamp(base * ratio, 20, 18000)) end
   end
   return freqs
@@ -304,10 +303,12 @@ function init()
   params:add_separator("AVANT_LAB_V")
   
   -- 1. GLOBAL & MIX
-  params:add_group("GLOBAL / MIX", 12) 
+  params:add_group("GLOBAL / MIX", 14) 
   params:add{type = "control", id = "feedback", name = "Feedback", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) engine.feedback(x) end}
   params:add{type = "control", id = "global_q", name = "Global Q", controlspec = controlspec.new(0.5, 80.0, 'exp', 0, 1.0), action = function(x) engine.global_q(x) end}
   params:add{type = "control", id = "reverb_mix", name = "Reverb Mix", controlspec = controlspec.new(0, 1, 'lin', 0.001, 1.0), action = function(x) engine.reverb_mix(x) end}
+  params:add{type = "control", id = "reverb_time", name = "Reverb Decay", controlspec = controlspec.new(0.1, 60.0, 'exp', 0.1, 1.5, "s"), action = function(x) engine.reverb_time(x) end}
+  params:add{type = "control", id = "reverb_damp", name = "Reverb Damp", controlspec = controlspec.new(100, 20000, 'exp', 10, 10000, "Hz"), action = function(x) engine.reverb_damp(x) end}
   params:add{type = "control", id = "system_dirt", name = "System Dirt", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.0), action = function(x) engine.system_dirt(x) end}
   
   params:add{
@@ -408,7 +409,6 @@ function init()
     params:add{type = "control", id = "l"..i.."_end", name = "End Point", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 1.0), action = function(x) state.tracks[i].loop_end = x; Loopers.refresh(i, state) end}
     params:add{type = "option", id = "l"..i.."_src", name = "Input Source", options = SRC_OPTIONS, default = 1, action = function(x) state.tracks[i].src_sel = x - 1; Loopers.refresh(i, state) end}
     
-    -- [FIX] REC LEVEL DEFINITION (dB Scale: -60 to +12)
     params:add{
         type = "control", 
         id = "l"..i.."_rec_lvl", 
@@ -420,7 +420,6 @@ function init()
     params:add{type = "control", id = "l"..i.."_aux", name = "Aux Send", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) state.tracks[i].aux_send = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_xfade", name = "Crossfade", controlspec = controlspec.new(0.001, 1.0, 'exp', 0.001, 0.05, "s"), action = function(x) state.tracks[i].xfade = x; Loopers.refresh(i, state) end}
     
-    -- [NEW] Mixer Params
     params:add{type = "control", id = "l"..i.."_low", name = "Mixer Low", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0, "dB"), action = function(x) state.tracks[i].l_low = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_high", name = "Mixer High", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0, "dB"), action = function(x) state.tracks[i].l_high = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_filter", name = "Mixer Filter", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.5), action = function(x) state.tracks[i].l_filter = x; Loopers.refresh(i, state) end}
