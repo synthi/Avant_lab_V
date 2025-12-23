@@ -1,5 +1,5 @@
--- Avant_lab_V lib/controls.lua | Version 109.0
--- FIX: Page 7 Shift E3 controls Loop End correctly
+-- Avant_lab_V lib/controls.lua | Version 110.0
+-- FIX: Added Fates Encoder 4 Support (Global Feedback / Shift: Track Degrade)
 
 local Controls = {}
 local fileselect = require 'fileselect' 
@@ -154,7 +154,6 @@ Pages[7] = {
     if (s.k1_held or s.mod_shift_16) then
       if n==1 then Loopers.delta_param("rec_level", d, s) 
       elseif n==2 then Loopers.delta_param("start", d, s)
-      -- [FIX] Corrected E3 Shift to control "end" instead of "xfade"
       elseif n==3 then Loopers.delta_param("end", d, s) end 
     else
       if n==1 then Loopers.delta_param("vol", d, s)
@@ -226,6 +225,20 @@ Pages[9] = {
 }
 
 function Controls.enc(n, d, state)
+  -- [FIX] FATES ENCODER 4 SUPPORT
+  -- This block intercepts E4 before page logic
+  if n == 4 then
+     if state.k1_held or state.mod_shift_16 then
+        -- Shift + E4: Control Degrade (Wow) of Selected Track
+        -- Uses delta_param to handle clamping and refresh
+        Loopers.delta_param("wow", d, state)
+     else
+        -- E4: Global Feedback
+        params:delta("feedback", d)
+     end
+     return -- Stop processing, don't send E4 to pages
+  end
+
   local p = Pages[state.current_page]
   if p and p.enc then p.enc(n, d, state) end
 end
