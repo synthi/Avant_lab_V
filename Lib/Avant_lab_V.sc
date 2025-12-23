@@ -1,5 +1,5 @@
-// Engine_Avant_lab_V.sc | Version 99.0
-// FIX: High Frequency Stability Protection (Adaptive RQ limit)
+// Engine_Avant_lab_V.sc | Version 203.0
+// UPDATE: Max Loop Time increased to 120s.
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -12,10 +12,11 @@ Engine_Avant_lab_V : CroneEngine {
     alloc {
         var buffers;
 
-        buf1 = Buffer.alloc(context.server, context.server.sampleRate * 60.0, 2);
-        buf2 = Buffer.alloc(context.server, context.server.sampleRate * 60.0, 2);
-        buf3 = Buffer.alloc(context.server, context.server.sampleRate * 60.0, 2);
-        buf4 = Buffer.alloc(context.server, context.server.sampleRate * 60.0, 2);
+        // [CHANGE] Buffers increased to 120 seconds
+        buf1 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
+        buf2 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
+        buf3 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
+        buf4 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
         dummy_buf = Buffer.alloc(context.server, 44100, 2);
         
         buffers = [buf1, buf2, buf3, buf4];
@@ -41,6 +42,7 @@ Engine_Avant_lab_V : CroneEngine {
             // --- GLOBAL VARIABLES ---
             var noise, input, source, local, input_sum, ping, ping_env; 
             var fb_amt=\fb_amt.kr(0), global_q=\global_q.kr(1), xfeed_amt=\xfeed_amt.kr(0), reverb_mix=\reverb_mix.kr(1);
+            var reverb_time=\reverb_time.kr(1.5), reverb_damp=\reverb_damp.kr(10000);
             var input_amp=\input_amp.kr(1), noise_amp=\noise_amp.kr(0), noise_type=\noise_type.kr(0);
             var ping_active=\ping_active.kr(0), ping_mode=\ping_mode.kr(0), ping_amp=\ping_amp.kr(0), ping_timbre=\ping_timbre.kr(0), ping_jitter=\ping_jitter.kr(0), ping_rate=\ping_rate.kr(1);
             var t_seq=\t_seq.tr(0), t_manual=\t_manual.tr(0);
@@ -170,13 +172,10 @@ Engine_Avant_lab_V : CroneEngine {
                     
                     var effective_q = (global_q * LinLin.kr(db, -60, 0, 0.5, 1.2)) / (1.0 + (f/12000));
                     
-                    // [FIX] ADAPTIVE RQ LIMIT (Prevents High-Freq Instability)
-                    // Reduces max bandwidth as freq increases.
-                    // At 100Hz -> Max RQ = 2.0 (Wide)
-                    // At 16kHz -> Max RQ = 0.4 (Narrow)
-                    var max_rq = 2.0 * (1.0 - (f / 20000).clip(0, 0.8));
-                    
+                    // Adaptive RQ limit for stability
+                    var max_rq = 2.5 * (1.0 - (f / 22000).clip(0, 0.9)); 
                     var rq = (1 / (effective_q * LFNoise2.kr(0.2).range(1.0, 1.0-(filter_drift*0.3)))).clip(0.005, max_rq);
+                    
                     var band;
                     var band_amp, gain_red;
                     
@@ -184,8 +183,10 @@ Engine_Avant_lab_V : CroneEngine {
                         if(i == 15, { band = RHPF.ar(chan_sig, f, rq) }, { band = BPF.ar(chan_sig, f, rq) * (2.0 + (effective_q*0.05)); })
                     });
                     
-                    band_amp = Amplitude.kr(band, 0.01, 0.1);
-                    gain_red = (1.0 - ((band_amp - 0.25).max(0) * stabilizer * 2.0)).clip(0.2, 1.0);
+                    // Breathing Stabilizer
+                    band_amp = Amplitude.kr(band, 0.01, 0.3); 
+                    gain_red = 1.0 - ((band_amp - 0.25).max(0) * stabilizer * 2.0).tanh; 
+                    
                     band = band * gain_red;
 
                     Out.kr(bands_bus_base + i, Amplitude.kr(band));
@@ -196,16 +197,36 @@ Engine_Avant_lab_V : CroneEngine {
             sig_filters = (bank_in * (1.0 - filter_mix)) + (bank_out * filter_mix);
             tap_post_filter = sig_filters;
             
-            sig_post_reverb = sig_filters; 
-            wet_reverb = sig_filters.collect({ |chan, idx|
-                var p = chan;
-                8.do({ |i| p = AllpassC.ar(p, 0.2, 0.01 + (i*0.003), 1.5 + (idx*0.2)); });
-                p;
+            // [NEW] BUTTERFLY CROSSFEED (Reverb Matrix)
+            sig_post_reverb = [
+                sig_filters[0] + (sig_filters[1] * xfeed_amt * 0.7),
+                sig_filters[1] + (sig_filters[0] * xfeed_amt * 0.7)
+            ];
+            
+            // [NEW] GREYHOLE LITE (Modulated Schroeder Reverb)
+            wet_reverb = sig_post_reverb.collect({ |chan, idx|
+                var p = DelayN.ar(chan, 0.1, 0.03); // 30ms Pre-Delay (Kills Dry Leak)
+                
+                // Parallel Modulated Comb Filters (Density)
+                var combs = 6.collect({ 
+                    var dt = Rand(0.03, 0.07);
+                    var mod = LFNoise2.kr(Rand(0.1, 0.5)).range(0, 0.002); // Chorus modulation
+                    CombL.ar(p, 0.2, dt + mod, reverb_time) 
+                }).sum;
+                
+                // Series Allpass Filters (Diffusion)
+                4.do({ |i| combs = AllpassN.ar(combs, 0.050, {Rand(0.01, 0.05)}.dup, 1); });
+                
+                combs * 0.2; // Gain compensation
             });
+            
+            // Damping (Post-Tank)
+            wet_reverb = LPF.ar(wet_reverb, reverb_damp);
+            
             final_signal = (sig_filters * (1-reverb_mix)) + (HPF.ar(wet_reverb, 10) * reverb_mix);
             tap_post_reverb = final_signal;
 
-            // --- 3. LOOPERS ENGINE ---
+            // --- 3. LOOPERS ENGINE (TRANSPARENT) ---
             loop_outputs_sum = Silent.ar(2);
             loop_aux_sum = Silent.ar(2);
             4.do({ |i|
@@ -259,9 +280,13 @@ Engine_Avant_lab_V : CroneEngine {
                 
                 start_pos = trk_start * BufFrames.kr(b_idx);
                 end_pos = trk_end * BufFrames.kr(b_idx);
+                
+                // Constant Power Crossfade (Sine)
                 fade_len = trk_xfade * SampleRate.ir;
-                dist_start = (ptr - start_pos).abs; dist_end = (end_pos - ptr).abs;
-                fade_in = (dist_start / fade_len).clip(0, 1); fade_out = (dist_end / fade_len).clip(0, 1);
+                dist_start = (ptr - start_pos).abs; 
+                dist_end = (end_pos - ptr).abs;
+                fade_in = (dist_start / fade_len).clip(0, 1); 
+                fade_out = (dist_end / fade_len).clip(0, 1);
                 xfade_gain = (fade_in.min(fade_out) * 0.5 * pi).sin;
                 
                 Out.kr(pos_bus_base + i, ptr / BufFrames.kr(b_idx));
@@ -283,8 +308,7 @@ Engine_Avant_lab_V : CroneEngine {
                 
                 rec_sig = (in * trk_rec_amp) + (play_sig * trk_dub);
                 
-                rec_sig = LPF.ar(rec_sig, dynamic_cutoff);
-                
+                // Transparent Recording (No Ramp, No Filter)
                 BufWr.ar(rec_sig.tanh, target_buf, ptr);
                 
                 output_sig = play_sig * gate_play.lag(0.05);
@@ -395,6 +419,8 @@ Engine_Avant_lab_V : CroneEngine {
         this.addCommand("noise_amp", "f", { |msg| synth.set(\noise_amp, msg[1]); });
         this.addCommand("noise_type", "f", { |msg| synth.set(\noise_type, msg[1]); });
         this.addCommand("reverb_mix", "f", { |msg| synth.set(\reverb_mix, msg[1]); });
+        this.addCommand("reverb_time", "f", { |msg| synth.set(\reverb_time, msg[1]); });
+        this.addCommand("reverb_damp", "f", { |msg| synth.set(\reverb_damp, msg[1]); });
         this.addCommand("pre_hpf", "f", { |msg| synth.set(\pre_hpf, msg[1]); });
         this.addCommand("pre_lpf", "f", { |msg| synth.set(\pre_lpf, msg[1]); });
         this.addCommand("stabilizer", "f", { |msg| synth.set(\stabilizer, msg[1]); });
