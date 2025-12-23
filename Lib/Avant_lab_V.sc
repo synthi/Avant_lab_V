@@ -1,5 +1,5 @@
-// Engine_Avant_lab_V.sc | Version 98.0
-// FIX: Implemented Rec Level Input Gain (Real +12dB boost support)
+// Engine_Avant_lab_V.sc | Version 98.2
+// FIX: Fader Slew (Lag3 instead of VarLag), Rec Level dB
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -50,7 +50,11 @@ Engine_Avant_lab_V : CroneEngine {
             var raw_pre_lpf=\pre_lpf.kr(20000);
             var pre_hpf, pre_lpf; 
             
-            var stabilizer=\stabilizer.kr(0), spread=\spread.kr(0), filter_mix=\filter_mix.kr(1), fader_lag=\fader_lag.kr(0.05);
+            var stabilizer=\stabilizer.kr(0), spread=\spread.kr(0), filter_mix=\filter_mix.kr(1);
+            
+            // [FIX] Fader Lag Variable
+            var fader_lag=\fader_lag.kr(0.05);
+            
             var lfo_depth=\lfo_depth.kr(0), lfo_rate=\lfo_rate.kr(0.1), lfo_min_db=\lfo_min_db.kr(-60);
             var tm_mix=\tape_mix.kr(1), tm_time=\tape_time.kr(0), tm_fb=\tape_fb.kr(0), tm_sat=\tape_sat.kr(0), tm_wow=\tape_wow.kr(0), tm_flut=\tape_flutter.kr(0), tm_ero=\tape_erosion.kr(0);
             
@@ -58,7 +62,6 @@ Engine_Avant_lab_V : CroneEngine {
             var filter_drift=\filter_drift.kr(0);
             var main_mon=\main_mon.kr(0.833); 
             
-            // Looper Params
             var l_rec = [\l1_rec.kr(0), \l2_rec.kr(0), \l3_rec.kr(0), \l4_rec.kr(0)];
             var l_play = [\l1_play.kr(0), \l2_play.kr(0), \l3_play.kr(0), \l4_play.kr(0)];
             var l_vol = [\l1_vol.kr(0), \l2_vol.kr(0), \l3_vol.kr(0), \l4_vol.kr(0)];
@@ -72,10 +75,8 @@ Engine_Avant_lab_V : CroneEngine {
             var l_xfade = [\l1_xfade.kr(0.05), \l2_xfade.kr(0.05), \l3_xfade.kr(0.05), \l4_xfade.kr(0.05)];
             var l_brake = [\l1_brake.kr(0), \l2_brake.kr(0), \l3_brake.kr(0), \l4_brake.kr(0)];
             
-            // [FIX] Added Rec Level Array
-            var l_rec_lvl = [\l1_rec_lvl.kr(1), \l2_rec_lvl.kr(1), \l3_rec_lvl.kr(1), \l4_rec_lvl.kr(1)];
+            var l_rec_lvl = [\l1_rec_lvl.kr(0), \l2_rec_lvl.kr(0), \l3_rec_lvl.kr(0), \l4_rec_lvl.kr(0)];
             
-            // Mixer Params
             var l_low = [\l1_low.kr(0), \l2_low.kr(0), \l3_low.kr(0), \l4_low.kr(0)];
             var l_high = [\l1_high.kr(0), \l2_high.kr(0), \l3_high.kr(0), \l4_high.kr(0)];
             var l_filter = [\l1_filter.kr(0.5), \l2_filter.kr(0.5), \l3_filter.kr(0.5), \l4_filter.kr(0.5)];
@@ -165,7 +166,10 @@ Engine_Avant_lab_V : CroneEngine {
                 var cmix = 0;
                 16.do({ |i|
                     var key_g = ("g" ++ i).asSymbol; var key_f = ("f" ++ i).asSymbol;
-                    var db = VarLag.kr(NamedControl.kr(key_g, -60.0), fader_lag, warp: \linear);
+                    
+                    // [FIX] FADER SLEW: Replaced VarLag with Lag3 for smoother response
+                    var db = Lag3.kr(NamedControl.kr(key_g, -60.0), fader_lag);
+                    
                     var amp = db.dbamp; 
                     
                     var f = NamedControl.kr(key_f, init_freqs[i.clip(0,15)], 0.05) * (1 + (LFNoise2.kr(0.05+(i*0.02)).range(0.9,1.1) * filter_drift * 0.06));
@@ -213,8 +217,9 @@ Engine_Avant_lab_V : CroneEngine {
                 var trk_xfade = l_xfade[i];
                 var trk_brake = l_brake[i]; 
                 
-                // [FIX] Get Rec Level from array
-                var trk_rec_lvl = l_rec_lvl[i];
+                // [FIX] Rec Level in dB -> Amp
+                var trk_rec_lvl_db = l_rec_lvl[i];
+                var trk_rec_amp = trk_rec_lvl_db.dbamp;
                 
                 var trk_low = l_low[i]; var trk_high = l_high[i]; var trk_filter = l_filter[i];
                 var trk_pan = l_pan[i]; var trk_width = l_width[i];
@@ -277,8 +282,7 @@ Engine_Avant_lab_V : CroneEngine {
                 dynamic_cutoff = (rate_slew.abs * 20000).clip(10, 20000);
                 play_sig = LPF.ar(LPF.ar(play_sig, dynamic_cutoff), dynamic_cutoff);
                 
-                // [FIX] APPLY REC LEVEL TO INPUT (Pre-Feedback)
-                rec_sig = (in * trk_rec_lvl) + (play_sig * trk_dub);
+                rec_sig = (in * trk_rec_amp) + (play_sig * trk_dub);
                 
                 rec_sig = LPF.ar(rec_sig, dynamic_cutoff);
                 
@@ -375,7 +379,6 @@ Engine_Avant_lab_V : CroneEngine {
         this.addCommand("l_pan", "if", { |msg| synth.set(("l" ++ msg[1] ++ "_pan").asSymbol, msg[2]); });
         this.addCommand("l_width", "if", { |msg| synth.set(("l" ++ msg[1] ++ "_width").asSymbol, msg[2]); });
         
-        // [FIX] ADDED OSC COMMAND FOR REC LEVEL
         this.addCommand("l_rec_lvl", "if", { |msg| synth.set(("l" ++ msg[1] ++ "_rec_lvl").asSymbol, msg[2]); });
 
         this.addCommand("l1_config", "ffffffffffff", { |msg| synth.set(\l1_rec, msg[1], \l1_play, msg[2], \l1_vol, msg[3], \l1_speed, msg[4], \l1_start, msg[5], \l1_end, msg[6], \l1_src, msg[7], \l1_dub, msg[8], \l1_aux, msg[9], \l1_deg, msg[10], \l1_xfade, msg[11], \l1_brake, msg[12]); });
