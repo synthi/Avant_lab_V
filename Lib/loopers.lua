@@ -1,8 +1,9 @@
--- Avant_lab_V lib/loopers.lua | Version 109.2
--- FIX: Rec Level Delta Logic (dB Scale -60 to +12)
+-- Avant_lab_V lib/loopers.lua | Version 203.1
+-- FIX: Updated MAX_BUFFER_SEC to 120.0 to match Engine and Main Script
 
 local Loopers = {}
-local MAX_BUFFER_SEC = 60.0
+-- [FIX] Increased to 120.0 to sync with Engine
+local MAX_BUFFER_SEC = 120.0
 
 local function f(val) return (val or 0) * 1.0 end
 
@@ -51,9 +52,6 @@ function Loopers.refresh(t_idx, state)
     if sc_end <= sc_start then sc_end = sc_start + 0.001 end
   end
   
-  -- [FIX] Rec Level is now in dB. Default to 0dB.
-  local rec_lvl_db = t.rec_level or 0.0
-  
   local args = {
       f(gate_rec), f(gate_play), f(t.vol or 0.5), f(t.speed or 1.0),
       f(sc_start), f(sc_end), f(t.src_sel), f(send_dub),
@@ -66,14 +64,15 @@ function Loopers.refresh(t_idx, state)
   elseif t_idx == 4 then engine.l4_config(table.unpack(args))
   end
   
+  -- Send Mixer Params
   engine.l_low(t_idx, t.l_low or 0)
   engine.l_high(t_idx, t.l_high or 0)
   engine.l_filter(t_idx, t.l_filter or 0.5)
   engine.l_pan(t_idx, t.l_pan or 0)
   engine.l_width(t_idx, t.l_width or 1)
   
-  -- [FIX] Send dB value directly to engine (SC handles conversion)
-  engine.l_rec_lvl(t_idx, rec_lvl_db)
+  -- Send Rec Level
+  engine.l_rec_lvl(t_idx, t.rec_level or 0.0)
 end
 
 function Loopers.set_speed_slew(idx, target_speed, slew_time, state, start_val_override)
@@ -148,13 +147,14 @@ function Loopers.delta_param(param_name, d, state)
    elseif param_name == "start" then local e = t.loop_end or 1; t.loop_start = util.clamp((t.loop_start or 0) + d*0.005, 0, e - 0.01)
    elseif param_name == "end" then local s = t.loop_start or 0; t.loop_end = util.clamp((t.loop_end or 1) + d*0.005, s + 0.01, 1.0)
    
-   -- [FIX] REC LEVEL DELTA (dB Scale)
-   -- Increment by 1dB per tick for faster control, or 0.5dB for precision
    elseif param_name == "rec_level" then 
       t.rec_level = util.clamp((t.rec_level or 0.0) + d*0.5, -60, 12)
       
    elseif param_name == "aux" then t.aux_send = util.clamp((t.aux_send or 0) + d*0.01, 0, 1)
-   elseif param_name == "wow" then t.wow_macro = util.clamp((t.wow_macro or 0) + d*0.01, 0, 1)
+   
+   elseif param_name == "wow" then 
+      t.wow_macro = util.clamp((t.wow_macro or 0) + d*0.01, 0, 1)
+      params:set("l"..idx.."_deg", t.wow_macro)
    end
    Loopers.refresh(idx, state)
 end
@@ -187,7 +187,7 @@ function Loopers.transport_rec(state, idx, action_type)
         t.rec_len = effective_len
         t.loop_start = 0.001; t.loop_end = 1.0
         
-        -- Check Rec Behavior Param
+        -- Check Rec Behavior
         local behavior = params:get("rec_behavior")
         if behavior == 2 then
            t.state = 4 -- Go to Overdub
