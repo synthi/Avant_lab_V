@@ -1,5 +1,5 @@
--- Avant_lab_V lib/globals.lua | Version 94.0
--- FIX: Mixer Params, Page 9 Support
+-- Avant_lab_V lib/globals.lua | Version 109.0
+-- FIX: Added visual_gain for Slew visualization
 
 local Globals = {}
 
@@ -18,16 +18,20 @@ function Globals.new()
   s.time_page_focus = "MAIN"
   s.ping_btn_held = false
   
-  -- TAPE LIBRARY
   s.tape_library_sel = 1
   s.tape_filenames = {"[EMPTY]", "[EMPTY]", "[EMPTY]", "[EMPTY]"}
   s.tape_msg_timers = {0, 0, 0, 0}
   s.file_selector_active = false
   
-  -- MAIN
   s.bands_gain = {}
+  s.visual_gain = {} -- [NEW] Visual interpolation buffer
   s.grid_memory = {}
-  for i=1, 16 do s.bands_gain[i] = -60; s.grid_memory[i] = -60 end
+  for i=1, 16 do 
+     s.bands_gain[i] = -60
+     s.visual_gain[i] = -60 
+     s.grid_memory[i] = -60 
+  end
+  
   s.main_rec_slots = {}
   for i=1, 4 do s.main_rec_slots[i] = {data={}, state=0, press_time=0, start_time=0, step=1, duration=0} end
   s.main_presets_data = {{}, {}, {}, {}}
@@ -37,7 +41,6 @@ function Globals.new()
   s.main_preset_clicks = {0,0,0,0}
   s.morph_main_active = false; s.morph_main_slot = nil
   
-  -- TAPE
   s.track_sel = 1
   s.mixer_sel = 1 
   
