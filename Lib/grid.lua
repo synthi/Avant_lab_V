@@ -1,5 +1,5 @@
--- Avant_lab_V lib/grid.lua | Version 109.0
--- FIX: Grid Transport respects Rec Behavior (Rec->Dub or Rec->Play)
+-- Avant_lab_V lib/grid.lua | Version 109.2
+-- FIX: Grid Faders use Visual Gain (Slew), Ribbon Momentary Fix
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -68,7 +68,10 @@ local function draw_main_view(state)
     local amp = state.band_levels[i] or 0; local int_val = math.floor(amp * 49); levels_cache[i].int = int_val; levels_cache[i].frac = (amp * 49) - int_val
   end
   for i=1, 16 do
-    local db = state.bands_gain[i] or -60; local fader_h = math.floor(util.linlin(-60,0,1,6,db) + 0.5); if fader_h < 1 then fader_h = 1 end
+    -- [FIX] Use visual_gain for Slew visualization
+    local db = state.visual_gain[i] or -60; 
+    
+    local fader_h = math.floor(util.linlin(-60,0,1,6,db) + 0.5); if fader_h < 1 then fader_h = 1 end
     local sig = levels_cache[i]
     for h=1, 6 do
        local y = 7 - h; local b_fad = (h <= fader_h) and 2 or 0; local b_sig = 0
@@ -442,15 +445,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                     local len = raw_time * speed_factor
                     if len < 0.1 then len = 0.1 end; if len > 60.0 then len = 60.0 end
                     state.tracks[trk].rec_len = len; state.tracks[trk].loop_start = 0; state.tracks[trk].loop_end = 1
-                    
-                    -- [FIX] GRID TRANSPORT: Check Rec Behavior Param (2 = Rec->Dub)
-                    local behavior = params:get("rec_behavior")
-                    if behavior == 2 then
-                       state.tracks[trk].state = 4 -- Go to Overdub
-                       state.tracks[trk].is_dirty = true
-                    else
-                       state.tracks[trk].state = 3 -- Go to Play
-                    end
                  end
                  Loopers.refresh(trk, state)
               end
@@ -514,15 +508,24 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
            local idx = x - 5
            local tgt_speed = VS_VALS[idx] or 1.0
            state.ribbon_target_speed = tgt_speed
+           
+           -- [FIX] APPLY IMMEDIATELY IN MOMENTARY MODE
+           if state.grid_momentary_mode then
+              Loopers.set_speed_slew(target, state.ribbon_target_speed, 0.1, state, state.ribbon_start_speed)
+           end
+           
         elseif z==0 then
            if state.grid_momentary_mode and state.ribbon_memory[target] then
               Loopers.set_speed_slew(target, state.ribbon_memory[target], 0.1, state, state.tracks[target].speed)
               state.ribbon_memory[target] = nil
            else
-              local dur = util.time() - state.ribbon_press_time
-              local slew = 0
-              if dur < 0.15 then slew = 0.05 elseif dur < 2.0 then slew = util.linlin(0.15, 2.0, 0.5, 2.0, dur) elseif dur < 3.0 then slew = 5.0 else slew = 8.0 end
-              Loopers.set_speed_slew(target, state.ribbon_target_speed, slew, state, state.ribbon_start_speed)
+              -- Standard Mode (Release logic)
+              if not state.grid_momentary_mode then
+                 local dur = util.time() - state.ribbon_press_time
+                 local slew = 0
+                 if dur < 0.15 then slew = 0.05 elseif dur < 2.0 then slew = util.linlin(0.15, 2.0, 0.5, 2.0, dur) elseif dur < 3.0 then slew = 5.0 else slew = 8.0 end
+                 Loopers.set_speed_slew(target, state.ribbon_target_speed, slew, state, state.ribbon_start_speed)
+              end
            end
         end
      end
