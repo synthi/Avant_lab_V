@@ -1,5 +1,5 @@
--- Avant_lab_V lib/graphics.lua | Version 105.14
--- FIX: Screen Faders use Visual Gain (Slew)
+-- Avant_lab_V lib/graphics.lua | Version 110.2
+-- FIX: Degrade Label "DEGRADE" + Value Brightness 6
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -229,9 +229,18 @@ function Graphics.draw(state)
      local t = state.tracks[sel]
      local track_title = "TRACK " .. sel
      
+     -- [FIX] DEGRADE INDICATOR (Always visible, Level 6)
+     screen.level(3)
+     screen.move(55, 8)
+     screen.text("DEGRADE")
+     screen.level(6) -- Subtle brightness
+     screen.move(55, 15)
+     screen.text(string.format("%.2f", t.wow_macro or 0))
+     
      if not shift then
        local vol_db = util.linlin(0, 1, -60, 12, t.vol or 0)
        draw_left_e1("VOL", string.format("%.1fdB", vol_db))
+       
        local speed = t.speed or 1
        local dir_sym = speed < 0 and "<<" or ">>"
        draw_right_param_pair("SPEED", string.format("%s %.2f", dir_sym, math.abs(speed)), "DUB", string.format("%.0f%%", (t.overdub or 0.5)*100))
@@ -306,10 +315,7 @@ function Graphics.draw(state)
      local floor_y = 60
      for i=1, 16 do
         local x = 2 + ((i-1) * 5)
-        
-        -- [FIX] Use visual_gain for smooth fader drawing
         local db = state.visual_gain[i] or -60
-        
         local spec = state.band_levels[i] or 0
         local h_gain = linlin(-60, 0, 0, 45, db)
         screen.level(2)
