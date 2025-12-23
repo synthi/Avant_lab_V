@@ -1,5 +1,5 @@
--- Avant_lab_V lib/graphics.lua | Version 105.12
--- FIX: Rec Input Display Range (+12dB)
+-- Avant_lab_V lib/graphics.lua | Version 105.14
+-- FIX: Screen Faders use Visual Gain (Slew)
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -236,7 +236,6 @@ function Graphics.draw(state)
        local dir_sym = speed < 0 and "<<" or ">>"
        draw_right_param_pair("SPEED", string.format("%s %.2f", dir_sym, math.abs(speed)), "DUB", string.format("%.0f%%", (t.overdub or 0.5)*100))
      else
-       -- [FIX] REC IN Display: 0-4.0 -> -60 to +12dB
        local rec_db = util.linlin(0, 4.0, -60, 12, t.rec_level or 1)
        draw_left_e1("REC IN", string.format("%.1fdB", rec_db))
        
@@ -307,7 +306,10 @@ function Graphics.draw(state)
      local floor_y = 60
      for i=1, 16 do
         local x = 2 + ((i-1) * 5)
-        local db = state.bands_gain[i] or -60
+        
+        -- [FIX] Use visual_gain for smooth fader drawing
+        local db = state.visual_gain[i] or -60
+        
         local spec = state.band_levels[i] or 0
         local h_gain = linlin(-60, 0, 0, 45, db)
         screen.level(2)
