@@ -1,5 +1,5 @@
-// Engine_Avant_lab_V.sc | Version 98.2
-// FIX: Fader Slew (Lag3 instead of VarLag), Rec Level dB
+// Engine_Avant_lab_V.sc | Version 99.0
+// FIX: High Frequency Stability Protection (Adaptive RQ limit)
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -50,11 +50,7 @@ Engine_Avant_lab_V : CroneEngine {
             var raw_pre_lpf=\pre_lpf.kr(20000);
             var pre_hpf, pre_lpf; 
             
-            var stabilizer=\stabilizer.kr(0), spread=\spread.kr(0), filter_mix=\filter_mix.kr(1);
-            
-            // [FIX] Fader Lag Variable
-            var fader_lag=\fader_lag.kr(0.05);
-            
+            var stabilizer=\stabilizer.kr(0), spread=\spread.kr(0), filter_mix=\filter_mix.kr(1), fader_lag=\fader_lag.kr(0.05);
             var lfo_depth=\lfo_depth.kr(0), lfo_rate=\lfo_rate.kr(0.1), lfo_min_db=\lfo_min_db.kr(-60);
             var tm_mix=\tape_mix.kr(1), tm_time=\tape_time.kr(0), tm_fb=\tape_fb.kr(0), tm_sat=\tape_sat.kr(0), tm_wow=\tape_wow.kr(0), tm_flut=\tape_flutter.kr(0), tm_ero=\tape_erosion.kr(0);
             
@@ -166,17 +162,21 @@ Engine_Avant_lab_V : CroneEngine {
                 var cmix = 0;
                 16.do({ |i|
                     var key_g = ("g" ++ i).asSymbol; var key_f = ("f" ++ i).asSymbol;
-                    
-                    // [FIX] FADER SLEW: Replaced VarLag with Lag3 for smoother response
                     var db = Lag3.kr(NamedControl.kr(key_g, -60.0), fader_lag);
-                    
                     var amp = db.dbamp; 
                     
                     var f = NamedControl.kr(key_f, init_freqs[i.clip(0,15)], 0.05) * (1 + (LFNoise2.kr(0.05+(i*0.02)).range(0.9,1.1) * filter_drift * 0.06));
                     var jitter = LFNoise1.kr(1.0+(i*0.1)).range(1.0-(filter_drift*0.15), 1.0+(filter_drift*0.05));
                     
                     var effective_q = (global_q * LinLin.kr(db, -60, 0, 0.5, 1.2)) / (1.0 + (f/12000));
-                    var rq = (1 / (effective_q * LFNoise2.kr(0.2).range(1.0, 1.0-(filter_drift*0.3)))).clip(0.005, 2.0);
+                    
+                    // [FIX] ADAPTIVE RQ LIMIT (Prevents High-Freq Instability)
+                    // Reduces max bandwidth as freq increases.
+                    // At 100Hz -> Max RQ = 2.0 (Wide)
+                    // At 16kHz -> Max RQ = 0.4 (Narrow)
+                    var max_rq = 2.0 * (1.0 - (f / 20000).clip(0, 0.8));
+                    
+                    var rq = (1 / (effective_q * LFNoise2.kr(0.2).range(1.0, 1.0-(filter_drift*0.3)))).clip(0.005, max_rq);
                     var band;
                     var band_amp, gain_red;
                     
@@ -217,7 +217,6 @@ Engine_Avant_lab_V : CroneEngine {
                 var trk_xfade = l_xfade[i];
                 var trk_brake = l_brake[i]; 
                 
-                // [FIX] Rec Level in dB -> Amp
                 var trk_rec_lvl_db = l_rec_lvl[i];
                 var trk_rec_amp = trk_rec_lvl_db.dbamp;
                 
