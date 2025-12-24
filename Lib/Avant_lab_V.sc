@@ -1,5 +1,5 @@
-// Engine_Avant_lab_V.sc | Version 203.0
-// UPDATE: Max Loop Time increased to 120s.
+// Engine_Avant_lab_V.sc | Version 206.0
+// UPDATE: Legacy Erosion (Dust Dropouts), Head Bump EQ, Smoother Filters
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -12,7 +12,7 @@ Engine_Avant_lab_V : CroneEngine {
     alloc {
         var buffers;
 
-        // [CHANGE] Buffers increased to 120 seconds
+        // Buffers 120 seconds
         buf1 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
         buf2 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
         buf3 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
@@ -41,6 +41,7 @@ Engine_Avant_lab_V : CroneEngine {
 
             // --- GLOBAL VARIABLES ---
             var noise, input, source, local, input_sum, ping, ping_env; 
+            
             var fb_amt=\fb_amt.kr(0), global_q=\global_q.kr(1), xfeed_amt=\xfeed_amt.kr(0), reverb_mix=\reverb_mix.kr(1);
             var reverb_time=\reverb_time.kr(1.5), reverb_damp=\reverb_damp.kr(10000);
             var input_amp=\input_amp.kr(1), noise_amp=\noise_amp.kr(0), noise_type=\noise_type.kr(0);
@@ -54,11 +55,16 @@ Engine_Avant_lab_V : CroneEngine {
             
             var stabilizer=\stabilizer.kr(0), spread=\spread.kr(0), filter_mix=\filter_mix.kr(1), fader_lag=\fader_lag.kr(0.05);
             var lfo_depth=\lfo_depth.kr(0), lfo_rate=\lfo_rate.kr(0.1), lfo_min_db=\lfo_min_db.kr(-60);
-            var tm_mix=\tape_mix.kr(1), tm_time=\tape_time.kr(0), tm_fb=\tape_fb.kr(0), tm_sat=\tape_sat.kr(0), tm_wow=\tape_wow.kr(0), tm_flut=\tape_flutter.kr(0), tm_ero=\tape_erosion.kr(0);
+            
+            var tm_mix=\tape_mix.kr(1), tm_time=\tape_time.kr(0), tm_fb=\tape_fb.kr(0, 0.2);
+            var tm_sat=\tape_sat.kr(0), tm_wow=\tape_wow.kr(0, 0.2), tm_flut=\tape_flutter.kr(0, 0.2), tm_ero=\tape_erosion.kr(0);
             
             var system_dirt=\system_dirt.kr(0);
             var filter_drift=\filter_drift.kr(0);
             var main_mon=\main_mon.kr(0.833); 
+            
+            // Shared Physics
+            var shared_wow, shared_flutter, shared_mod, shared_dust_trig, shared_dropout_env;
             
             var l_rec = [\l1_rec.kr(0), \l2_rec.kr(0), \l3_rec.kr(0), \l4_rec.kr(0)];
             var l_play = [\l1_play.kr(0), \l2_play.kr(0), \l3_play.kr(0), \l4_play.kr(0)];
@@ -134,20 +140,51 @@ Engine_Avant_lab_V : CroneEngine {
             input_sum = source + (local * fb_amt);
             tap_clean = input_sum;
             
-            input_sum = input_sum + dirt_sig;
+            input_sum = LeakDC.ar(input_sum + dirt_sig);
             
-            tape_proc = input_sum + (InFeedback.ar(tape_fb_bus_idx, 2) * tm_fb);
+            // --- MAIN TAPE ECHO (FUSION ENGINE) ---
+            
+            // 1. Shared Physics (Single Motor)
+            shared_wow = LFNoise2.kr(Rand(0.5, 2.0)) * tm_wow * 0.005; 
+            shared_flutter = LFNoise1.kr(15) * tm_flut * 0.0005;
+            shared_mod = shared_wow + shared_flutter;
+            
+            // 2. Legacy Erosion (Dust Dropouts) - Shared
+            shared_dust_trig = Dust.kr(tm_ero * 15);
+            shared_dropout_env = Decay.kr(shared_dust_trig, 0.1);
+            
+            tape_proc = input_sum + (LeakDC.ar(HPF.ar(InFeedback.ar(tape_fb_bus_idx, 2), 40)) * tm_fb);
+            
             tape_out = tape_proc.collect({ |chan|
-                 var speed_t = 1.0; 
-                 var ms = LagUD.kr(speed_t, 1.0, 0.5);
-                 var rate = (ms + (LFNoise2.kr(Rand(0.5, 2.0)) * tm_wow * 0.01) + (LFNoise1.kr(15) * tm_flut * 0.001)).clip(0.1, 2.0);
-                 var dt = (Lag.kr(tm_time, 0.5) + 0.01) / rate;
-                 var sig = DelayC.ar(chan, 6.0, dt.clip(0, 6.0));
-                 var eh = (LinLin.kr(tm_ero, 0, 1, 20000, 6000) * ms).clip(100, 20000);
-                 var el = LinLin.kr(tm_ero, 0, 1, 10, 400);
-                 sig = LPF.ar(sig, eh); sig = HPF.ar(sig, el);
-                 (sig * (1 + (tm_sat * 2))).tanh
+                 var dt, sig, eh, el, drive, comp_gain, head_bump, gain_loss;
+                 
+                 dt = (Lag.kr(tm_time, 0.5) + 0.01 + shared_mod).clip(0, 6.0);
+                 sig = DelayC.ar(chan, 6.0, dt);
+                 
+                 // [NEW] Head Bump (Low End Res)
+                 head_bump = BPeakEQ.ar(sig, 100, 1.0, tm_sat * 3.0);
+                 
+                 // Tape Compression (Soft)
+                 drive = 1.0 + (tm_sat * 3.0);
+                 comp_gain = 1.0 / (1.0 + (tm_sat * 0.5));
+                 sig = (head_bump * drive).tanh * comp_gain;
+                 
+                 // [NEW] Smoother Erosion Filters (Logarithmic feel)
+                 // High Cut: Starts slow (20k), drops faster at end (to 6k)
+                 eh = LinExp.kr(1.0 - tm_ero, 0.001, 1.0, 6000, 20000);
+                 // Low Cut: Limited to 150Hz max (Preserve Body)
+                 el = LinExp.kr(tm_ero, 0.001, 1.0, 10, 150);
+                 
+                 sig = LPF.ar(sig, eh); 
+                 sig = HPF.ar(sig, el);
+                 
+                 // [NEW] Legacy Dust Dropouts
+                 gain_loss = (shared_dropout_env * tm_ero).clip(0, 0.9);
+                 sig = sig * (1.0 - gain_loss);
+                 
+                 sig
             });
+            
             Out.ar(tape_fb_bus_idx, Limiter.ar(tape_out, 0.95));
             sig_main_tape = (input_sum * (1.0 - tm_mix)) + (tape_out * tm_mix);
             tap_post_tape = sig_main_tape;
@@ -257,6 +294,9 @@ Engine_Avant_lab_V : CroneEngine {
                 var mid, side, new_l, new_r;
                 var eq_max_db, sat_drive;
                 
+                // [NEW] DYNAMIC HPF (ANTI-THUMP)
+                var anti_thump_freq;
+                
                 target_buf = Select.kr(gate_rec > 0.1, [dummy_buf, b_idx]);
                 
                 in = Select.ar(trk_src, [
@@ -266,13 +306,17 @@ Engine_Avant_lab_V : CroneEngine {
                 
                 brake_idx = (trk_brake * 4).round;
                 brake_mod = Select.kr(brake_idx, [1.0, 1.0, 1.0, 0.5, 0.0]);
-                brake_mod = Lag.kr(brake_mod, 0.2);
+                // [FIX] Changed Lag to Lag3 for smoother brake release (No Thump)
+                brake_mod = Lag3.kr(brake_mod, 0.3);
                 lfo_mod = Select.kr(brake_idx, [1.0, LFNoise2.kr(2).range(0.95, 1.05), LFNoise2.kr(8).range(0.88, 1.12), LFNoise2.kr(4).range(0.95, 1.05), 1.0]);
                 
                 lfo_lag_time = Select.kr(brake_idx, [0.1, 0.25, 0.1, 0.05, 0.05]);
                 lfo_mod = Lag.kr(lfo_mod, lfo_lag_time);
                 
                 rate_slew = Lag.kr(trk_spd, 0.05) * brake_mod * lfo_mod; 
+                
+                // Anti-Thump Logic
+                anti_thump_freq = LinExp.kr(rate_slew.abs, 0.0, 1.0, 150, 10);
                 
                 ptr = Phasor.ar(seek_t, rate_slew * BufRateScale.kr(b_idx), 
                                 trk_start * BufFrames.kr(b_idx), trk_end * BufFrames.kr(b_idx),
@@ -312,6 +356,9 @@ Engine_Avant_lab_V : CroneEngine {
                 BufWr.ar(rec_sig.tanh, target_buf, ptr);
                 
                 output_sig = play_sig * gate_play.lag(0.05);
+                
+                // Apply Anti-Thump Filter
+                output_sig = HPF.ar(output_sig, anti_thump_freq);
                 
                 output_sig = BLowShelf.ar(output_sig, 60, 4.0, trk_low);
                 output_sig = BHiShelf.ar(output_sig, 10000, 4.0, trk_high);
