@@ -1,5 +1,5 @@
--- Avant_lab_V lib/graphics.lua | Version 500.1
--- UPDATE: Analog Fluidity on Screen (Variable Brightness Tips), Logarithmic Scale
+-- Avant_lab_V lib/graphics.lua | Version 500.16
+-- UPDATE: Padding Fix, Bass Focus Option Display
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -11,6 +11,14 @@ local random = math.random
 local pi = math.pi
 local clamp = util.clamp
 local linlin = util.linlin
+
+-- Trails History Storage
+local trail_history = {
+   gonio = {},
+   filter = {},
+   time = {}
+}
+local MAX_TRAILS = 3
 
 local divs_names = {"1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/64", "1/128", "1/256"}
 local note_names = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"}
@@ -43,18 +51,25 @@ local function draw_goniometer_block(amp_l, amp_r, zoom)
   local size_base = clamp(mid * zoom * 10, 0, 22)
   local width_base = clamp(math.abs(side) * zoom * 20, 0, 20)
   
-  if size_base < 1 then 
-    screen.level(2); screen.pixel(cx, cy); screen.fill()
-  else
-    screen.level(15)
-    for i = 1, 25 do
-      local ang = random() * 6.28
-      local rad = random() * size_base
-      local px = cx + (cos(ang) * rad) + ((random()-0.5)*2 * width_base)
-      local py = cy + (sin(ang) * rad * 1.4)
-      screen.pixel(px, py) 
-    end
-    screen.fill()
+  table.insert(trail_history.gonio, 1, {s=size_base, w=width_base})
+  if #trail_history.gonio > MAX_TRAILS then table.remove(trail_history.gonio) end
+  
+  for i=#trail_history.gonio, 1, -1 do
+     local frame = trail_history.gonio[i]
+     local brightness = math.floor(15 / (i * 2))
+     if frame.s < 1 then
+        if i == 1 then screen.level(2); screen.pixel(cx, cy); screen.fill() end
+     else
+        screen.level(brightness)
+        local points = (i==1) and 25 or 10
+        for p=1, points do
+           local ang = random() * 6.28
+           local rad = random() * frame.s
+           local px = cx + (cos(ang) * rad) + ((random()-0.5)*2 * frame.w)
+           local py = cy + (sin(ang) * rad * 1.4)
+           screen.pixel(px, py); screen.fill()
+        end
+     end
   end
 end
 
@@ -189,12 +204,149 @@ local function draw_mixer_view(state, shift)
   screen.update()
 end
 
+-- [NEW v500.15] Vintage Plasma Fluid Logic
+local function draw_plasma_bar_fluid(x, y, w, h, val, is_inverted, is_gr)
+   local seg_w = 2
+   local gap = 1
+   local total_segs = math.floor(w / (seg_w + gap))
+   
+   -- Background (Dim)
+   screen.level(1)
+   for i=0, total_segs-1 do
+      screen.rect(x + (i * (seg_w+gap)), y, seg_w, h)
+      screen.fill()
+   end
+   
+   -- Calculate Active Segments
+   local active_float = val * total_segs
+   local active_int = math.floor(active_float)
+   local active_frac = active_float - active_int
+   
+   -- Determine Brightness Zone (NTP Style)
+   local function get_brightness(pct)
+      if is_gr then return 8 end -- GR always 8
+      if pct < 0.6 then return 6 
+      elseif pct < 0.9 then return 10
+      else return 15 end
+   end
+   
+   -- Draw Active Segments
+   for i=0, active_int-1 do
+      local pos_x = x + (i * (seg_w+gap))
+      if is_inverted then pos_x = x + w - ((i+1) * (seg_w+gap)) end
+      
+      local pct = (i+1) / total_segs
+      screen.level(get_brightness(pct))
+      screen.rect(pos_x, y, seg_w, h)
+      screen.fill()
+   end
+   
+   -- Draw Fluid Tip (Fractional)
+   if active_frac > 0.1 and active_int < total_segs then
+      local i = active_int
+      local pos_x = x + (i * (seg_w+gap))
+      if is_inverted then pos_x = x + w - ((i+1) * (seg_w+gap)) end
+      
+      local pct = (i+1) / total_segs
+      local base_b = get_brightness(pct)
+      local tip_b = math.floor(base_b * active_frac)
+      if tip_b > 0 then
+         screen.level(tip_b)
+         screen.rect(pos_x, y, seg_w, h)
+         screen.fill()
+      end
+   end
+end
+
+local function draw_master_view(state, shift)
+   screen.clear()
+   
+   -- 1. Top Left: Monitor (E1)
+   screen.font_size(8)
+   screen.level(3); screen.move(0, 8)
+   if not shift then screen.text("MONITOR") else screen.text("CEIL") end
+   screen.level(15); screen.move(0, 15)
+   if not shift then 
+      screen.text(string.format("%.1fdB", util.linlin(0, 1, -60, 12, params:get("main_mon"))))
+   else
+      screen.text(string.format("%.1fdB", params:get("limiter_ceil")))
+   end
+   
+   -- 2. Header
+   draw_vertical_divider()
+   draw_header_right("MASTER")
+   draw_goniometer_block(state.amp_l, state.amp_r, params:get("scope_zoom") or 4)
+   
+   -- 3. Center Stage: Plasma Meters (Y=28)
+   local cx = 50 -- Centered for text alignment
+   local w = 52  -- Adjusted width to fit
+   local y_start = 28 
+   
+   -- Gain Reduction Bar (Inverted)
+   local gr = state.comp_gr or 0
+   local gr_norm = clamp(gr * 4, 0, 1) 
+   
+   screen.level(3)
+   screen.move(cx - 38, y_start - 4); screen.text_right("GR")
+   draw_plasma_bar_fluid(cx - 30, y_start - 7, w, 2, gr_norm, true, true) -- h=2, inverted, is_gr
+   
+   -- Output L/R Bars (Logarithmic)
+   local amp_l_db = 20 * math.log10(state.amp_l > 0.0001 and state.amp_l or 0.0001)
+   local amp_r_db = 20 * math.log10(state.amp_r > 0.0001 and state.amp_r or 0.0001)
+   local l_norm = linlin(-60, 0, 0, 1, amp_l_db); l_norm = clamp(l_norm, 0, 1)
+   local r_norm = linlin(-60, 0, 0, 1, amp_r_db); r_norm = clamp(r_norm, 0, 1)
+   
+   screen.level(3)
+   screen.move(cx - 38, y_start + 4); screen.text_right("L")
+   draw_plasma_bar_fluid(cx - 30, y_start + 1, w, 4, l_norm, false, false) -- h=4
+   
+   screen.level(3)
+   screen.move(cx - 38, y_start + 11); screen.text_right("R")
+   draw_plasma_bar_fluid(cx - 30, y_start + 8, w, 4, r_norm, false, false) -- h=4
+   
+   -- 4. Bottom Params (Y=53/60)
+   
+   -- Mono Bass (Bottom Left)
+   local bf = params:get("bass_focus")
+   local txt_bf = {"OFF", "50Hz", "100Hz", "200Hz"}
+   screen.level(3); screen.move(0, 53); screen.text("MONO BASS")
+   -- [UPDATE v500.16] Use 1-based index for Option param
+   screen.level(bf > 1 and 15 or 6); screen.move(0, 60); screen.text(txt_bf[bf])
+   
+   -- E2 (Center-Left)
+   screen.level(3); screen.move(55, 53)
+   if not shift then screen.text("THRESH") else screen.text("BAL") end
+   screen.level(15); screen.move(55, 60)
+   if not shift then 
+      screen.text(string.format("%.1fdB", params:get("comp_thresh")))
+   else
+      screen.text(string.format("%.2f", params:get("balance")))
+   end
+   
+   -- E3 (Right)
+   screen.level(3); screen.move(95, 53)
+   if not shift then screen.text("RATIO") else screen.text("DRIVE") end
+   screen.level(15); screen.move(95, 60)
+   if not shift then 
+      screen.text(string.format("%.1f:1", params:get("comp_ratio")))
+   else
+      screen.text(string.format("%.1fdB", params:get("comp_drive")))
+   end
+   
+   screen.update()
+end
+
 function Graphics.draw(state)
   local page = state.current_page
-  local shift = state.k1_held or state.mod_shift_16
+  local shift = state.k1_held or state.mod_shift_16 or state.grid_shift_active
   local amp_l = state.amp_l or 0
   local amp_r = state.amp_r or 0
   local now = util.time()
+  
+  if page == 10 then
+     draw_master_view(state, shift)
+     return
+  end
   
   if page == 9 then
      draw_mixer_view(state, shift)
@@ -384,12 +536,22 @@ function Graphics.draw(state)
     local total_energy = 0
     for i=1,16 do total_energy = total_energy + (state.band_levels[i] or 0) end
     local amp = clamp(total_energy * 20, 2, 18)
-    screen.level(10)
-    for i = 0, area_w, 2 do
-      local w1 = sin((i/area_w * 10) + anim_phase_osc) * amp
-      screen.pixel(2 + i, cy + w1); screen.pixel(2 + i, cy - w1)
+    
+    -- [NEW v500.5] Trails for Filter Wave
+    table.insert(trail_history.filter, 1, {amp=amp, phase=anim_phase_osc})
+    if #trail_history.filter > MAX_TRAILS then table.remove(trail_history.filter) end
+    
+    for t=#trail_history.filter, 1, -1 do
+       local frame = trail_history.filter[t]
+       local brightness = floor(10 / t)
+       screen.level(brightness)
+       for i = 0, area_w, 2 do
+         local w1 = sin((i/area_w * 10) + frame.phase) * frame.amp
+         screen.pixel(2 + i, cy + w1); screen.pixel(2 + i, cy - w1)
+       end
+       screen.fill()
     end
-    screen.fill()
+    
     draw_vertical_divider(); draw_goniometer_block(amp_l, amp_r, params:get("scope_zoom") or 4); draw_header_right("FILTER"); screen.update()
     return
   end
@@ -541,13 +703,23 @@ function Graphics.draw(state)
     local cx = 84 * 0.4; local cy = 15 + 45/2
     anim_phase_time = (anim_phase_time or 0) + ((params:get("seq_rate"..suffix) or 0) * 0.2) 
     local radius = 12 + (amp_l * 15); local morph = params:get("preset_morph"..suffix) or 0
-    screen.level(10)
-    for t = 0, 6.28, 0.1 do
-      local r = radius + cos(t * (2 + floor(morph*2))) * (morph * 3)
-      local ang = t + anim_phase_time
-      screen.pixel(cx + cos(ang)*r, cy + sin(ang)*r)
+    
+    -- [NEW v500.5] Trails for Time Circle
+    table.insert(trail_history.time, 1, {ph=anim_phase_time, r=radius, m=morph})
+    if #trail_history.time > MAX_TRAILS then table.remove(trail_history.time) end
+    
+    for i=#trail_history.time, 1, -1 do
+       local frame = trail_history.time[i]
+       local brightness = floor(10/i)
+       screen.level(brightness)
+       for t = 0, 6.28, 0.1 do
+         local r = frame.r + cos(t * (2 + floor(frame.m*2))) * (frame.m * 3)
+         local ang = t + frame.ph
+         screen.pixel(cx + cos(ang)*r, cy + sin(ang)*r)
+       end
+       screen.fill()
     end
-    screen.fill()
+    
     draw_vertical_divider(); draw_goniometer_block(amp_l, amp_r, params:get("scope_zoom") or 4); 
     screen.level(15); screen.move(128, 8); screen.text_right("TIME [" .. focus .. "]")
     screen.update()
