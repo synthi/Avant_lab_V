@@ -1,5 +1,5 @@
--- Avant_lab_V.lua | Version 203.0
--- UPDATE: Max Loop Time increased to 120s.
+-- Avant_lab_V.lua | Version 330.0
+-- UPDATE: Pointer Scaling Fix, Cleaned Up Params, Stability
 
 engine.name = 'Avant_lab_V'
 
@@ -15,7 +15,6 @@ g = grid.connect()
 
 local DIV_VALUES = {4, 2, 1, 0.5, 0.25, 0.125, 0.0625, 0.03125}
 local SRC_OPTIONS = {"Clean Input", "Post Tape", "Post Filter", "Post Reverb", "Track 1", "Track 2", "Track 3", "Track 4"}
--- [CHANGE] Increased buffer size to 120 seconds
 local MAX_BUFFER_SEC = 120.0 
 local FPS = 20
 
@@ -95,17 +94,20 @@ function update_morph_main()
   if state.morph_main_active and state.morph_main_slot then
      local slot = state.morph_main_slot
      local target = state.main_presets_data[slot]
-     if not target or not target.gains then state.morph_main_active = false; return end
+     if not target or not target.gains then 
+        state.morph_main_active = false
+        return 
+     end
      
      local morph_time = params:get("preset_morph_main")
      if state.morph_fast_mode then morph_time = 0.1 end
      
      if morph_time < 0.05 then
-        for i=1, 16 do params:set("gain_"..i, target.gains[i]) end
+        for i=1, 16 do params:set("gain_"..i, target.gains[i] or -60) end
         if target.q then params:set("global_q", target.q) end
         if target.feedback then params:set("feedback", target.feedback) end
         if target.scale_idx then 
-           params:set("scale_idx", target.scale_idx); params:set("root_note", target.root_note); load_scale(target.scale_idx) 
+           params:set("scale_idx", target.scale_idx); params:set("root_note", target.root_note or 1); load_scale(target.scale_idx) 
         end
         state.morph_main_active = false
      else
@@ -114,15 +116,15 @@ function update_morph_main()
         local progress = elapsed / morph_time
         
         if progress >= 1.0 then
-           for i=1, 16 do params:set("gain_"..i, target.gains[i]) end
+           for i=1, 16 do params:set("gain_"..i, target.gains[i] or -60) end
            if target.q then params:set("global_q", target.q) end
            if target.feedback then params:set("feedback", target.feedback) end
-           if target.scale_idx then params:set("scale_idx", target.scale_idx); params:set("root_note", target.root_note); load_scale(target.scale_idx) end
+           if target.scale_idx then params:set("scale_idx", target.scale_idx); params:set("root_note", target.root_note or 1); load_scale(target.scale_idx) end
            state.morph_main_active = false
         else
            for i=1, 16 do
               local start_val = state.morph_main_src[i] or params:get("gain_"..i) or -60
-              local end_val = target.gains[i]
+              local end_val = target.gains[i] or -60
               params:set("gain_"..i, start_val + ((end_val - start_val) * progress))
            end
            if target.q and state.morph_main_src_q then
@@ -132,7 +134,7 @@ function update_morph_main()
               params:set("feedback", state.morph_main_src_fb + ((target.feedback - state.morph_main_src_fb) * progress))
            end
            if target.scale_idx and state.morph_main_src_freqs then
-              local target_freqs = get_target_freqs(target.scale_idx, target.root_note)
+              local target_freqs = get_target_freqs(target.scale_idx, target.root_note or 1)
               if target_freqs then
                  for i=1, 16 do
                     local start_f = state.morph_main_src_freqs[i] or params:get("freq_"..i)
@@ -300,6 +302,12 @@ function init()
       util.make_dir(_path.audio .. "Avant_lab_V/snapshots") 
   end
   
+  -- [AUDIT] Sanitize Presets Data on Init to prevent crashes
+  for i=1, 4 do
+     if not state.main_presets_data[i] then state.main_presets_data[i] = {} end
+     if not state.tape_presets_data[i] then state.tape_presets_data[i] = {} end
+  end
+  
   params:add_separator("AVANT_LAB_V")
   
   -- 1. GLOBAL & MIX
@@ -348,7 +356,8 @@ function init()
   params:add_group("INPUT", 3)
   params:add{type = "control", id = "input_amp", name = "Input Level", controlspec = controlspec.new(0, 2, 'lin', 0.001, 1.0), action = function(x) engine.input_amp(x) end}
   params:add{type = "control", id = "noise_amp", name = "Noise Level", controlspec = controlspec.new(0, 2, 'lin', 0.001, 0.0), action = function(x) engine.noise_amp(x) end}
-  params:add{type = "option", id = "noise_type", name = "Noise Type", options = {"Pink", "White"}, action = function(x) engine.noise_type(x-1) end}
+  -- [CHANGE] Added Brown Noise
+  params:add{type = "option", id = "noise_type", name = "Noise Type", options = {"Pink", "White", "Brown"}, action = function(x) engine.noise_type(x-1) end}
 
   -- 4. PING
   params:add_group("PING GENERATOR", 10)
@@ -373,6 +382,7 @@ function init()
 
   -- 6. FILTER BANK
   params:add_group("FILTER BANK", 7)
+  -- [AUDIT] Filter Type removed
   params:add{type = "control", id = "filter_mix", name = "Filter Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 1.0), action = function(x) engine.filter_mix(x) end}
   params:add{type = "control", id = "pre_hpf", name = "Low Cut (HPF)", controlspec = controlspec.new(20, 999, 'exp', 0, 20, "Hz"), action = function(x) engine.pre_hpf(x) end}
   params:add{type = "control", id = "pre_lpf", name = "High Cut (LPF)", controlspec = controlspec.new(150, 20000, 'exp', 0, 20000, "Hz"), action = function(x) engine.pre_lpf(x) end}
@@ -418,7 +428,8 @@ function init()
     }
     
     params:add{type = "control", id = "l"..i.."_aux", name = "Aux Send", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) state.tracks[i].aux_send = x; Loopers.refresh(i, state) end}
-    params:add{type = "control", id = "l"..i.."_xfade", name = "Crossfade", controlspec = controlspec.new(0.001, 1.0, 'exp', 0.001, 0.05, "s"), action = function(x) state.tracks[i].xfade = x; Loopers.refresh(i, state) end}
+    -- [CHANGE] Default Crossfade set to 0.005 (5ms)
+    params:add{type = "control", id = "l"..i.."_xfade", name = "Crossfade", controlspec = controlspec.new(0.001, 1.0, 'exp', 0.001, 0.005, "s"), action = function(x) state.tracks[i].xfade = x; Loopers.refresh(i, state) end}
     
     params:add{type = "control", id = "l"..i.."_low", name = "Mixer Low", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0, "dB"), action = function(x) state.tracks[i].l_low = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_high", name = "Mixer High", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0, "dB"), action = function(x) state.tracks[i].l_high = x; Loopers.refresh(i, state) end}
@@ -475,6 +486,7 @@ function init()
     if pp then
       pp.time = 0.05
       pp.callback = function(val) 
+         -- [FIX] Pointer display logic restored: Absolute (SC) to Relative (Lua)
          local t = state.tracks[i]
          local len = t.rec_len or 0
          if len > 0.1 then
