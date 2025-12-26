@@ -1,5 +1,5 @@
--- Avant_lab_V lib/graphics.lua | Version 110.2
--- FIX: Degrade Label "DEGRADE" + Value Brightness 6
+-- Avant_lab_V lib/graphics.lua | Version 500.1
+-- UPDATE: Analog Fluidity on Screen (Variable Brightness Tips), Logarithmic Scale
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -229,11 +229,10 @@ function Graphics.draw(state)
      local t = state.tracks[sel]
      local track_title = "TRACK " .. sel
      
-     -- [FIX] DEGRADE INDICATOR (Always visible, Level 6)
      screen.level(3)
      screen.move(55, 8)
      screen.text("DEGRADE")
-     screen.level(6) -- Subtle brightness
+     screen.level(6) 
      screen.move(55, 15)
      screen.text(string.format("%.2f", t.wow_macro or 0))
      
@@ -245,7 +244,7 @@ function Graphics.draw(state)
        local dir_sym = speed < 0 and "<<" or ">>"
        draw_right_param_pair("SPEED", string.format("%s %.2f", dir_sym, math.abs(speed)), "DUB", string.format("%.0f%%", (t.overdub or 0.5)*100))
      else
-       local rec_db = util.linlin(0, 4.0, -60, 12, t.rec_level or 1)
+       local rec_db = t.rec_level or 0
        draw_left_e1("REC IN", string.format("%.1fdB", rec_db))
        
        local start_p = floor((t.loop_start or 0) * 100)
@@ -321,8 +320,31 @@ function Graphics.draw(state)
         screen.level(2)
         if h_gain > 1 then screen.rect(x, floor_y - h_gain, 4, h_gain); screen.fill() 
         else screen.rect(x, floor_y, 4, 1); screen.fill() end
-        local h_spec = clamp(spec * 300, 0, 48)
-        if h_spec > 1 then screen.level(15); screen.rect(x+1, floor_y - h_spec, 1, h_spec); screen.fill() end
+        
+        -- LOGARITHMIC VISUAL SCALING & ANALOG FLUIDITY v500.1
+        local val_db = 20 * math.log10(spec > 0.0001 and spec or 0.0001)
+        local h_spec = linlin(-60, 0, 0, 48, val_db)
+        h_spec = clamp(h_spec, 0, 48)
+        
+        local h_int = floor(h_spec)
+        local h_frac = h_spec - h_int
+        
+        -- Draw Body (Solid)
+        if h_int > 0 then 
+           screen.level(15)
+           screen.rect(x+1, floor_y - h_int, 1, h_int)
+           screen.fill() 
+        end
+        
+        -- Draw Tip (Variable Brightness)
+        if h_frac > 0.1 then
+           local tip_bright = floor(h_frac * 15)
+           if tip_bright > 0 then
+              screen.level(tip_bright)
+              screen.pixel(x+1, floor_y - h_int - 1)
+              screen.fill()
+           end
+        end
      end
      
      draw_vertical_divider(); draw_goniometer_block(amp_l, amp_r, params:get("scope_zoom") or 4); 
@@ -347,54 +369,28 @@ function Graphics.draw(state)
      return
   end
 
+  -- PAGE 2: FILTER BANK (MOVED FROM P6)
   if page == 2 then
     screen.clear()
-    local mode = params:get("ping_mode") or 1
-    if mode == 1 then 
-      if not shift then
-        draw_left_e1("RATE", string.format("%.2f Hz", params:get("ping_rate") or 0))
-        draw_right_param_pair("JITTER", string.format("%.2f", params:get("ping_jitter") or 0), "TIMBRE", string.format("%.2f", params:get("ping_timbre") or 0))
-      else
-        draw_left_e1("RATE FAST", string.format("%.2f Hz", params:get("ping_rate") or 0))
-        local sign = state.rate_offset >= 0 and "+" or ""
-        draw_right_param_pair("RATE FINE", string.format("%s%.2f", sign, state.rate_offset), "LEVEL", string.format("%.2f", params:get("ping_amp") or 0))
-      end
-    else 
-      if not shift then
-        draw_left_e1("STEPS", tostring(params:get("ping_steps") or 16))
-        draw_right_param_pair("HITS", tostring(params:get("ping_hits") or 4), "DIVISION", divs_names[params:get("ping_div") or 3])
-      else
-        draw_left_e1("TIMBRE", string.format("%.2f", params:get("ping_timbre") or 0))
-        draw_right_param_pair("JITTER", string.format("%.2f", params:get("ping_jitter") or 0), "LEVEL", string.format("%.2f", params:get("ping_amp") or 0))
-      end
+    if not shift then
+      draw_left_e1("MIX", string.format("%.2f", params:get("filter_mix") or 0))
+      draw_right_param_pair("HPF", string.format("%.0f", params:get("pre_hpf") or 0), "LPF", string.format("%.0f", params:get("pre_lpf") or 0))
+    else
+      draw_left_e1("STAB", string.format("%.2f", params:get("stabilizer") or 0))
+      draw_right_param_pair("DRIFT", string.format("%.2f", params:get("filter_drift") or 0), "SPREAD", string.format("%.2f", params:get("spread") or 0))
     end
-    -- Ping Visual
-    local cx = 84 * 0.4; local cy = 15 + 45/2
-    local pulse_r = amp_l * 10
-    local base_r = 6 + sin(now * 0.6) * 2 + pulse_r
-    screen.level(3)
-    for a = 0, 6.28, 0.2 do
-      local noise_r = sin(a * 3 + now) * 1.5 
-      screen.pixel(cx + cos(a)*(base_r+noise_r), cy + sin(a)*(base_r+noise_r))
+    local area_w = 84; local cy = 15 + (45 / 2) - 4 
+    anim_phase_osc = (anim_phase_osc or 0) + 0.1
+    local total_energy = 0
+    for i=1,16 do total_energy = total_energy + (state.band_levels[i] or 0) end
+    local amp = clamp(total_energy * 20, 2, 18)
+    screen.level(10)
+    for i = 0, area_w, 2 do
+      local w1 = sin((i/area_w * 10) + anim_phase_osc) * amp
+      screen.pixel(2 + i, cy + w1); screen.pixel(2 + i, cy - w1)
     end
     screen.fill()
-    for i = #state.ping_pulses, 1, -1 do
-      local p = state.ping_pulses[i]; local age = now - p.t0; local k = age / 0.6
-      if k >= 1 then table.remove(state.ping_pulses, i)
-      else
-        local radius = k * 35; local jitter = (p.jitter or 0) * 4
-        local pcx = cx + (random() - 0.5) * 2 * jitter 
-        local pcy = cy + (random() - 0.5) * 2 * jitter 
-        local b = floor(clamp(linlin(0,1,10,5, p.amp or 0.7) * (1-k) + 4, 6, 15))
-        screen.level(b)
-        for a = 0, 6.28, 0.25 do
-          local r = radius + pulse_r + (sin(a * 4 + (p.phase_off or 0)) * radius * 0.2)
-          screen.pixel(pcx + cos(a)*r, pcy + sin(a)*r)
-        end
-        screen.fill()
-      end
-    end
-    draw_vertical_divider(); draw_goniometer_block(amp_l, amp_r, params:get("scope_zoom") or 4); draw_header_right("PING"); screen.update()
+    draw_vertical_divider(); draw_goniometer_block(amp_l, amp_r, params:get("scope_zoom") or 4); draw_header_right("FILTER"); screen.update()
     return
   end
 
@@ -478,7 +474,60 @@ function Graphics.draw(state)
     return
   end
 
+  -- PAGE 5: PING (MOVED FROM P2)
   if page == 5 then
+    screen.clear()
+    local mode = params:get("ping_mode") or 1
+    if mode == 1 then 
+      if not shift then
+        draw_left_e1("RATE", string.format("%.2f Hz", params:get("ping_rate") or 0))
+        draw_right_param_pair("JITTER", string.format("%.2f", params:get("ping_jitter") or 0), "TIMBRE", string.format("%.2f", params:get("ping_timbre") or 0))
+      else
+        draw_left_e1("RATE FAST", string.format("%.2f Hz", params:get("ping_rate") or 0))
+        local sign = state.rate_offset >= 0 and "+" or ""
+        draw_right_param_pair("RATE FINE", string.format("%s%.2f", sign, state.rate_offset), "LEVEL", string.format("%.2f", params:get("ping_amp") or 0))
+      end
+    else 
+      if not shift then
+        draw_left_e1("STEPS", tostring(params:get("ping_steps") or 16))
+        draw_right_param_pair("HITS", tostring(params:get("ping_hits") or 4), "DIVISION", divs_names[params:get("ping_div") or 3])
+      else
+        draw_left_e1("TIMBRE", string.format("%.2f", params:get("ping_timbre") or 0))
+        draw_right_param_pair("JITTER", string.format("%.2f", params:get("ping_jitter") or 0), "LEVEL", string.format("%.2f", params:get("ping_amp") or 0))
+      end
+    end
+    -- Ping Visual
+    local cx = 84 * 0.4; local cy = 15 + 45/2
+    local pulse_r = amp_l * 10
+    local base_r = 6 + sin(now * 0.6) * 2 + pulse_r
+    screen.level(3)
+    for a = 0, 6.28, 0.2 do
+      local noise_r = sin(a * 3 + now) * 1.5 
+      screen.pixel(cx + cos(a)*(base_r+noise_r), cy + sin(a)*(base_r+noise_r))
+    end
+    screen.fill()
+    for i = #state.ping_pulses, 1, -1 do
+      local p = state.ping_pulses[i]; local age = now - p.t0; local k = age / 0.6
+      if k >= 1 then table.remove(state.ping_pulses, i)
+      else
+        local radius = k * 35; local jitter = (p.jitter or 0) * 4
+        local pcx = cx + (random() - 0.5) * 2 * jitter 
+        local pcy = cy + (random() - 0.5) * 2 * jitter 
+        local b = floor(clamp(linlin(0,1,10,5, p.amp or 0.7) * (1-k) + 4, 6, 15))
+        screen.level(b)
+        for a = 0, 6.28, 0.25 do
+          local r = radius + pulse_r + (sin(a * 4 + (p.phase_off or 0)) * radius * 0.2)
+          screen.pixel(pcx + cos(a)*r, pcy + sin(a)*r)
+        end
+        screen.fill()
+      end
+    end
+    draw_vertical_divider(); draw_goniometer_block(amp_l, amp_r, params:get("scope_zoom") or 4); draw_header_right("PING"); screen.update()
+    return
+  end
+
+  -- PAGE 6: TIME (MOVED FROM P5)
+  if page == 6 then
     screen.clear()
     local focus = state.time_page_focus or "MAIN"
     local suffix = (focus == "MAIN") and "_main" or "_tape"
@@ -502,30 +551,6 @@ function Graphics.draw(state)
     draw_vertical_divider(); draw_goniometer_block(amp_l, amp_r, params:get("scope_zoom") or 4); 
     screen.level(15); screen.move(128, 8); screen.text_right("TIME [" .. focus .. "]")
     screen.update()
-    return
-  end
-
-  if page == 6 then
-    screen.clear()
-    if not shift then
-      draw_left_e1("MIX", string.format("%.2f", params:get("filter_mix") or 0))
-      draw_right_param_pair("HPF", string.format("%.0f", params:get("pre_hpf") or 0), "LPF", string.format("%.0f", params:get("pre_lpf") or 0))
-    else
-      draw_left_e1("STAB", string.format("%.2f", params:get("stabilizer") or 0))
-      draw_right_param_pair("DRIFT", string.format("%.2f", params:get("filter_drift") or 0), "SPREAD", string.format("%.2f", params:get("spread") or 0))
-    end
-    local area_w = 84; local cy = 15 + (45 / 2) - 4 
-    anim_phase_osc = (anim_phase_osc or 0) + 0.1
-    local total_energy = 0
-    for i=1,16 do total_energy = total_energy + (state.band_levels[i] or 0) end
-    local amp = clamp(total_energy * 20, 2, 18)
-    screen.level(10)
-    for i = 0, area_w, 2 do
-      local w1 = sin((i/area_w * 10) + anim_phase_osc) * amp
-      screen.pixel(2 + i, cy + w1); screen.pixel(2 + i, cy - w1)
-    end
-    screen.fill()
-    draw_vertical_divider(); draw_goniometer_block(amp_l, amp_r, params:get("scope_zoom") or 4); draw_header_right("FILTER"); screen.update()
     return
   end
 end
