@@ -1,5 +1,5 @@
-// Engine_Avant_lab_V.sc | Version 206.0
-// UPDATE: Legacy Erosion (Dust Dropouts), Head Bump EQ, Smoother Filters
+// Engine_Avant_lab_V.sc | Version 500.4
+// UPDATE: Global Feedback Resolution & Ring Mod Gain Staging
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -39,93 +39,158 @@ Engine_Avant_lab_V : CroneEngine {
              t1_bus=0, t2_bus=0, t3_bus=0, t4_bus=0,
              gonio_source=1, main_src_sel=3| 
 
-            // --- GLOBAL VARIABLES ---
-            var noise, input, source, local, input_sum, ping, ping_env; 
+            // --- 1. DECLARATIONS (STRICT: ALL VARS HERE) ---
+            var fb_amt, global_q, xfeed_amt, reverb_mix;
+            var reverb_time, reverb_damp;
+            var input_amp, noise_amp, noise_type;
+            var ping_active, ping_mode, ping_amp, ping_timbre, ping_jitter, ping_rate;
+            var t_seq, t_manual;
+            var rm_freq, rm_wave, rm_mix, rm_inst, rm_drive;
+            var raw_pre_hpf, raw_pre_lpf, pre_hpf, pre_lpf;
+            var stabilizer, spread, filter_mix, fader_lag;
+            var lfo_depth, lfo_rate, lfo_min_db;
+            var tm_mix, tm_time, tm_fb, tm_sat, tm_wow, tm_flut, tm_ero;
+            var system_dirt, filter_drift, main_mon;
             
-            var fb_amt=\fb_amt.kr(0), global_q=\global_q.kr(1), xfeed_amt=\xfeed_amt.kr(0), reverb_mix=\reverb_mix.kr(1);
-            var reverb_time=\reverb_time.kr(1.5), reverb_damp=\reverb_damp.kr(10000);
-            var input_amp=\input_amp.kr(1), noise_amp=\noise_amp.kr(0), noise_type=\noise_type.kr(0);
-            var ping_active=\ping_active.kr(0), ping_mode=\ping_mode.kr(0), ping_amp=\ping_amp.kr(0), ping_timbre=\ping_timbre.kr(0), ping_jitter=\ping_jitter.kr(0), ping_rate=\ping_rate.kr(1);
-            var t_seq=\t_seq.tr(0), t_manual=\t_manual.tr(0);
-            var rm_freq=\rm_freq.kr(100), rm_wave=\rm_wave.kr(0), rm_mix=\rm_mix.kr(0), rm_inst=\rm_instability.kr(0), rm_drive=\rm_drive.kr(0);
+            // Looper Controls
+            var l_rec, l_play, l_vol, l_speed, l_start, l_end;
+            var l_src, l_dub, l_aux, l_deg, l_xfade, l_brake;
+            var l_rec_lvl, l_rec_amp;
+            var l_low, l_high, l_filter, l_pan, l_width;
+            var l_seek_t, l_seek_p;
             
-            var raw_pre_hpf=\pre_hpf.kr(20);
-            var raw_pre_lpf=\pre_lpf.kr(20000);
-            var pre_hpf, pre_lpf; 
+            // Signals & Internal
+            var synth_buffers, track_buses, init_freqs;
+            var noise, input, source, local, input_sum, tap_clean;
+            var ping, ping_env, trig_int_sig, trig_seq_sig, trig_man_sig, auto_trig, master_trig;
+            var dirt_sig, hiss_vol, hum_vol, dust_dens, dust_vol, dust_sig;
             
-            var stabilizer=\stabilizer.kr(0), spread=\spread.kr(0), filter_mix=\filter_mix.kr(1), fader_lag=\fader_lag.kr(0.05);
-            var lfo_depth=\lfo_depth.kr(0), lfo_rate=\lfo_rate.kr(0.1), lfo_min_db=\lfo_min_db.kr(-60);
-            
-            var tm_mix=\tape_mix.kr(1), tm_time=\tape_time.kr(0), tm_fb=\tape_fb.kr(0, 0.2);
-            var tm_sat=\tape_sat.kr(0), tm_wow=\tape_wow.kr(0, 0.2), tm_flut=\tape_flutter.kr(0, 0.2), tm_ero=\tape_erosion.kr(0);
-            
-            var system_dirt=\system_dirt.kr(0);
-            var filter_drift=\filter_drift.kr(0);
-            var main_mon=\main_mon.kr(0.833); 
-            
-            // Shared Physics
+            var tape_proc, tape_out, sig_main_tape, tap_post_tape;
             var shared_wow, shared_flutter, shared_mod, shared_dust_trig, shared_dropout_env;
             
-            var l_rec = [\l1_rec.kr(0), \l2_rec.kr(0), \l3_rec.kr(0), \l4_rec.kr(0)];
-            var l_play = [\l1_play.kr(0), \l2_play.kr(0), \l3_play.kr(0), \l4_play.kr(0)];
-            var l_vol = [\l1_vol.kr(0), \l2_vol.kr(0), \l3_vol.kr(0), \l4_vol.kr(0)];
-            var l_speed = [\l1_speed.kr(1), \l2_speed.kr(1), \l3_speed.kr(1), \l4_speed.kr(1)];
-            var l_start = [\l1_start.kr(0), \l2_start.kr(0), \l3_start.kr(0), \l4_start.kr(0)];
-            var l_end = [\l1_end.kr(1), \l2_end.kr(1), \l3_end.kr(1), \l4_end.kr(1)];
-            var l_src = [\l1_src.kr(0), \l2_src.kr(0), \l3_src.kr(0), \l4_src.kr(0)];
-            var l_dub = [\l1_dub.kr(0.5), \l2_dub.kr(0.5), \l3_dub.kr(0.5), \l4_dub.kr(0.5)];
-            var l_aux = [\l1_aux.kr(0), \l2_aux.kr(0), \l3_aux.kr(0), \l4_aux.kr(0)];
-            var l_deg = [\l1_deg.kr(0), \l2_deg.kr(0), \l3_deg.kr(0), \l4_deg.kr(0)];
-            var l_xfade = [\l1_xfade.kr(0.05), \l2_xfade.kr(0.05), \l3_xfade.kr(0.05), \l4_xfade.kr(0.05)];
-            var l_brake = [\l1_brake.kr(0), \l2_brake.kr(0), \l3_brake.kr(0), \l4_brake.kr(0)];
-            
-            var l_rec_lvl = [\l1_rec_lvl.kr(0), \l2_rec_lvl.kr(0), \l3_rec_lvl.kr(0), \l4_rec_lvl.kr(0)];
-            
-            var l_low = [\l1_low.kr(0), \l2_low.kr(0), \l3_low.kr(0), \l4_low.kr(0)];
-            var l_high = [\l1_high.kr(0), \l2_high.kr(0), \l3_high.kr(0), \l4_high.kr(0)];
-            var l_filter = [\l1_filter.kr(0.5), \l2_filter.kr(0.5), \l3_filter.kr(0.5), \l4_filter.kr(0.5)];
-            var l_pan = [\l1_pan.kr(0), \l2_pan.kr(0), \l3_pan.kr(0), \l4_pan.kr(0)];
-            var l_width = [\l1_width.kr(1), \l2_width.kr(1), \l3_width.kr(1), \l4_width.kr(1)];
-            
-            var l_seek_t = [\l1_seek_t.tr(0), \l2_seek_t.tr(0), \l3_seek_t.tr(0), \l4_seek_t.tr(0)];
-            var l_seek_p = [\l1_seek_p.kr(0), \l2_seek_p.kr(0), \l3_seek_p.kr(0), \l4_seek_p.kr(0)];
-            
-            var synth_buffers = [buf1, buf2, buf3, buf4];
-            var track_buses = [t1_bus, t2_bus, t3_bus, t4_bus];
-            var init_freqs = [50, 75, 110, 150, 220, 350, 500, 750, 1100, 1600, 2200, 3600, 5200, 7500, 11000, 15000];
-            
-            var trig_int_sig, trig_seq_sig, trig_man_sig, auto_trig, master_trig;
-            var tape_proc, tape_out, bank_in, bank_out, rm_drift, rm_osc, rm_carrier, rm_processed_l, rm_processed_r;
-            var sig_main_tape, sig_filters, sig_post_reverb, wet_reverb, final_signal;
+            var rm_drift, rm_osc, rm_carrier, rm_processed_l, rm_processed_r;
+            var bank_in, bank_out, sig_filters, tap_post_filter;
+            var sig_post_reverb, wet_reverb, final_signal, tap_post_reverb;
             var aux_feedback_in, loop_outputs_sum, loop_aux_sum;
-            var tap_clean, tap_post_tape, tap_post_filter, tap_post_reverb;
-            var dirt_sig, hiss_vol, hum_vol, dust_dens, dust_sig, dust_vol;
-            var master_out, gonio_sig;
-            var main_mon_amp, monitor_signal; 
+            var monitor_signal, main_mon_amp, master_out, gonio_sig;
+            var trk1_in, trk2_in, trk3_in, trk4_in;
             
-            var trk1_in = InFeedback.ar(t1_bus, 2);
-            var trk2_in = InFeedback.ar(t2_bus, 2);
-            var trk3_in = InFeedback.ar(t3_bus, 2);
-            var trk4_in = InFeedback.ar(t4_bus, 2);
+            // [NEW v500.3] Helper Function for Asymmetric Saturation (Tube/Tape Warmth)
+            var asym_sat = { |sig| (sig + 0.2).tanh - 0.2 };
 
-            // --- AUDIO GRAPH ---
+            // --- 2. ASSIGNMENTS ---
+            
+            // [UPDATE v500.4] Lowered global feedback scaling for better resolution (0.6 -> 0.3)
+            fb_amt = \fb_amt.kr(0) * 0.3;
+            
+            global_q = \global_q.kr(1);
+            xfeed_amt = \xfeed_amt.kr(0);
+            reverb_mix = \reverb_mix.kr(1);
+            reverb_time = \reverb_time.kr(1.5);
+            reverb_damp = \reverb_damp.kr(10000);
+            
+            input_amp = \input_amp.kr(1);
+            noise_amp = \noise_amp.kr(0);
+            noise_type = \noise_type.kr(0);
+            
+            ping_active = \ping_active.kr(0);
+            ping_mode = \ping_mode.kr(0);
+            ping_amp = \ping_amp.kr(0);
+            ping_timbre = \ping_timbre.kr(0);
+            ping_jitter = \ping_jitter.kr(0);
+            ping_rate = \ping_rate.kr(1);
+            t_seq = \t_seq.tr(0);
+            t_manual = \t_manual.tr(0);
+            
+            rm_freq = \rm_freq.kr(100);
+            rm_wave = \rm_wave.kr(0);
+            rm_mix = \rm_mix.kr(0);
+            rm_inst = \rm_instability.kr(0);
+            rm_drive = \rm_drive.kr(0);
+            
+            raw_pre_hpf = \pre_hpf.kr(20);
+            raw_pre_lpf = \pre_lpf.kr(20000);
+            
+            stabilizer = \stabilizer.kr(0);
+            spread = \spread.kr(0);
+            filter_mix = \filter_mix.kr(1);
+            fader_lag = \fader_lag.kr(0.05);
+            
+            lfo_depth = \lfo_depth.kr(0);
+            lfo_rate = \lfo_rate.kr(0.1);
+            lfo_min_db = \lfo_min_db.kr(-60);
+            
+            tm_mix = \tape_mix.kr(1);
+            tm_time = \tape_time.kr(0);
+            tm_fb = \tape_fb.kr(0, 0.2);
+            tm_sat = \tape_sat.kr(0);
+            tm_wow = \tape_wow.kr(0, 0.2);
+            tm_flut = \tape_flutter.kr(0, 0.2);
+            tm_ero = \tape_erosion.kr(0);
+            
+            system_dirt = \system_dirt.kr(0);
+            filter_drift = \filter_drift.kr(0);
+            main_mon = \main_mon.kr(0.833);
+            
+            main_mon_amp = LinLin.kr(main_mon, 0, 1, -60, 12).dbamp * (main_mon > 0.001);
+            
+            // Looper Arrays
+            l_rec = [\l1_rec.kr(0), \l2_rec.kr(0), \l3_rec.kr(0), \l4_rec.kr(0)];
+            l_play = [\l1_play.kr(0), \l2_play.kr(0), \l3_play.kr(0), \l4_play.kr(0)];
+            l_vol = [\l1_vol.kr(0), \l2_vol.kr(0), \l3_vol.kr(0), \l4_vol.kr(0)];
+            l_speed = [\l1_speed.kr(1), \l2_speed.kr(1), \l3_speed.kr(1), \l4_speed.kr(1)];
+            l_start = [\l1_start.kr(0), \l2_start.kr(0), \l3_start.kr(0), \l4_start.kr(0)];
+            l_end = [\l1_end.kr(1), \l2_end.kr(1), \l3_end.kr(1), \l4_end.kr(1)];
+            l_src = [\l1_src.kr(0), \l2_src.kr(0), \l3_src.kr(0), \l4_src.kr(0)];
+            l_dub = [\l1_dub.kr(0.5), \l2_dub.kr(0.5), \l3_dub.kr(0.5), \l4_dub.kr(0.5)];
+            l_aux = [\l1_aux.kr(0), \l2_aux.kr(0), \l3_aux.kr(0), \l4_aux.kr(0)];
+            l_deg = [\l1_deg.kr(0), \l2_deg.kr(0), \l3_deg.kr(0), \l4_deg.kr(0)];
+            l_xfade = [\l1_xfade.kr(0.05), \l2_xfade.kr(0.05), \l3_xfade.kr(0.05), \l4_xfade.kr(0.05)];
+            l_brake = [\l1_brake.kr(0), \l2_brake.kr(0), \l3_brake.kr(0), \l4_brake.kr(0)];
+            
+            l_rec_lvl = [\l1_rec_lvl.kr(0), \l2_rec_lvl.kr(0), \l3_rec_lvl.kr(0), \l4_rec_lvl.kr(0)];
+            
+            l_low = [\l1_low.kr(0), \l2_low.kr(0), \l3_low.kr(0), \l4_low.kr(0)];
+            l_high = [\l1_high.kr(0), \l2_high.kr(0), \l3_high.kr(0), \l4_high.kr(0)];
+            l_filter = [\l1_filter.kr(0.5), \l2_filter.kr(0.5), \l3_filter.kr(0.5), \l4_filter.kr(0.5)];
+            l_pan = [\l1_pan.kr(0), \l2_pan.kr(0), \l3_pan.kr(0), \l4_pan.kr(0)];
+            l_width = [\l1_width.kr(1), \l2_width.kr(1), \l3_width.kr(1), \l4_width.kr(1)];
+            
+            l_seek_t = [\l1_seek_t.tr(0), \l2_seek_t.tr(0), \l3_seek_t.tr(0), \l4_seek_t.tr(0)];
+            l_seek_p = [\l1_seek_p.kr(0), \l2_seek_p.kr(0), \l3_seek_p.kr(0), \l4_seek_p.kr(0)];
+            
+            synth_buffers = [buf1, buf2, buf3, buf4];
+            track_buses = [t1_bus, t2_bus, t3_bus, t4_bus];
+            init_freqs = [50, 75, 110, 150, 220, 350, 500, 750, 1100, 1600, 2200, 3600, 5200, 7500, 11000, 15000];
+
+            trk1_in = InFeedback.ar(t1_bus, 2);
+            trk2_in = InFeedback.ar(t2_bus, 2);
+            trk3_in = InFeedback.ar(t3_bus, 2);
+            trk4_in = InFeedback.ar(t4_bus, 2);
+
+            // --- AUDIO PROCESSING ---
             
             pre_hpf = Lag.kr(raw_pre_hpf, 0.1);
             pre_lpf = Lag.kr(raw_pre_lpf, 0.1);
             
             aux_feedback_in = InFeedback.ar(aux_return_bus_idx, 2).tanh; 
-            noise = Select.ar(noise_type, [PinkNoise.ar, WhiteNoise.ar]) * noise_amp * 0.6;
             
-            hiss_vol = (system_dirt.pow(0.75)) * 0.03;
-            hum_vol = (system_dirt.pow(3)) * 0.015;
+            // Noise 0.05 + Brown
+            noise = Select.ar(noise_type, [PinkNoise.ar, WhiteNoise.ar, BrownNoise.ar]) * noise_amp * 0.05;
+            
+            // Dirt Generation (UPDATE v500.3: Softer curve and lower volume)
+            hiss_vol = (system_dirt.pow(2.0)) * 0.012; 
+            hum_vol = (system_dirt.pow(3.0)) * 0.006;  
             dust_dens = LinLin.kr(system_dirt, 0.11, 1.0, 0.05, 11);
-            dust_vol = LinExp.kr(system_dirt, 0.11, 1.0, 0.01, 0.5);
+            dust_vol = LinExp.kr(system_dirt, 0.11, 1.0, 0.005, 0.2); 
+            
             dust_sig = Decay2.ar(Dust.ar(dust_dens), 0.001, 0.01) * PinkNoise.ar(1);
             dust_sig = dust_sig * dust_vol * (system_dirt > 0.11);
             dirt_sig = (PinkNoise.ar(hiss_vol) + SinOsc.ar(50, 0, hum_vol) + dust_sig).dup;
             
             input = In.ar(in_bus, 2) * input_amp;
             
+            // Ping
             trig_int_sig = Impulse.ar(ping_rate * (1 + (LFNoise2.kr(ping_rate) * ping_jitter * 1.5)).clip(0.1, 40)) * ping_active;
             trig_seq_sig = Trig1.ar(K2A.ar(t_seq), SampleDur.ir);
             trig_man_sig = Trig1.ar(K2A.ar(t_manual), SampleDur.ir);
@@ -135,21 +200,20 @@ Engine_Avant_lab_V : CroneEngine {
             ping_env = Decay2.ar(master_trig, 0.001, 0.2);
             ping = SelectX.ar(ping_timbre, [LPF.ar(BrownNoise.ar, 200), PinkNoise.ar]) * ping_env * ping_amp;
             
+            // Summing
             source = input + noise.dup + ping.dup + aux_feedback_in;
             local = LocalIn.ar(2); 
             input_sum = source + (local * fb_amt);
             tap_clean = input_sum;
             
+            // Dirt added AFTER clean tap (Original)
             input_sum = LeakDC.ar(input_sum + dirt_sig);
             
-            // --- MAIN TAPE ECHO (FUSION ENGINE) ---
-            
-            // 1. Shared Physics (Single Motor)
-            shared_wow = LFNoise2.kr(Rand(0.5, 2.0)) * tm_wow * 0.005; 
+            // --- MAIN TAPE ECHO ---
+            // UPDATE v500.3: Motor Inertia (OnePole)
+            shared_wow = OnePole.kr(LFNoise2.kr(Rand(0.5, 2.0)) * tm_wow * 0.005, 0.95); 
             shared_flutter = LFNoise1.kr(15) * tm_flut * 0.0005;
             shared_mod = shared_wow + shared_flutter;
-            
-            // 2. Legacy Erosion (Dust Dropouts) - Shared
             shared_dust_trig = Dust.kr(tm_ero * 15);
             shared_dropout_env = Decay.kr(shared_dust_trig, 0.1);
             
@@ -161,24 +225,19 @@ Engine_Avant_lab_V : CroneEngine {
                  dt = (Lag.kr(tm_time, 0.5) + 0.01 + shared_mod).clip(0, 6.0);
                  sig = DelayC.ar(chan, 6.0, dt);
                  
-                 // [NEW] Head Bump (Low End Res)
                  head_bump = BPeakEQ.ar(sig, 100, 1.0, tm_sat * 3.0);
-                 
-                 // Tape Compression (Soft)
                  drive = 1.0 + (tm_sat * 3.0);
-                 comp_gain = 1.0 / (1.0 + (tm_sat * 0.5));
-                 sig = (head_bump * drive).tanh * comp_gain;
+                 comp_gain = 1.0 / (1.0 + (tm_sat * 1.8));
                  
-                 // [NEW] Smoother Erosion Filters (Logarithmic feel)
-                 // High Cut: Starts slow (20k), drops faster at end (to 6k)
+                 // UPDATE v500.3: Asymmetric Saturation
+                 sig = asym_sat.(head_bump * drive) * comp_gain;
+                 
                  eh = LinExp.kr(1.0 - tm_ero, 0.001, 1.0, 6000, 20000);
-                 // Low Cut: Limited to 150Hz max (Preserve Body)
                  el = LinExp.kr(tm_ero, 0.001, 1.0, 10, 150);
                  
                  sig = LPF.ar(sig, eh); 
                  sig = HPF.ar(sig, el);
                  
-                 // [NEW] Legacy Dust Dropouts
                  gain_loss = (shared_dropout_env * tm_ero).clip(0, 0.9);
                  sig = sig * (1.0 - gain_loss);
                  
@@ -192,8 +251,11 @@ Engine_Avant_lab_V : CroneEngine {
             rm_drift = (LFNoise2.kr(0.1) * 0.02 * rm_inst) + (LFNoise1.kr(10) * 0.005 * rm_inst);
             rm_osc = Select.ar(rm_wave, [SinOsc.ar(rm_freq * (1+rm_drift)), LFTri.ar(rm_freq * (1+rm_drift)), LFPulse.ar(rm_freq * (1+rm_drift)), LFSaw.ar(rm_freq * (1+rm_drift))]);
             rm_carrier = (rm_osc * 1.5).tanh + (PinkNoise.ar(0.005 * rm_inst));
-            rm_processed_l = (sig_main_tape[0].tanh * rm_carrier);
-            rm_processed_r = (sig_main_tape[1].tanh * rm_carrier);
+            
+            // [UPDATE v500.4] Ring Mod Gain Compensation (* 2.5) to match Filter Levels
+            rm_processed_l = (sig_main_tape[0].tanh * rm_carrier) * 2.5;
+            rm_processed_r = (sig_main_tape[1].tanh * rm_carrier) * 2.5;
+            
             bank_in = [(sig_main_tape[0] * (1.0 - rm_mix)) + (rm_processed_l * rm_mix), (sig_main_tape[1] * (1.0 - rm_mix)) + (rm_processed_r * rm_mix)];
             bank_in = HPF.ar(bank_in, pre_hpf); bank_in = LPF.ar(bank_in, pre_lpf);
 
@@ -209,93 +271,107 @@ Engine_Avant_lab_V : CroneEngine {
                     
                     var effective_q = (global_q * LinLin.kr(db, -60, 0, 0.5, 1.2)) / (1.0 + (f/12000));
                     
-                    // Adaptive RQ limit for stability
-                    var max_rq = 2.5 * (1.0 - (f / 22000).clip(0, 0.9)); 
-                    var rq = (1 / (effective_q * LFNoise2.kr(0.2).range(1.0, 1.0-(filter_drift*0.3)))).clip(0.005, max_rq);
+                    // [UPDATE v500.2] MAPPING FIX: Q to SVF Resonance
+                    var mod_q = effective_q * LFNoise2.kr(0.2).range(1.0, 1.0-(filter_drift*0.3));
                     
-                    var band;
-                    var band_amp, gain_red;
+                    // CRITICAL: Invert mapping for SVF (Q 80 -> Res 0.9875)
+                    var svf_res = (1.0 - (1.0 / mod_q.max(0.5))).clip(0.0, 1.0);
                     
-                    if(i == 0, { band = RLPF.ar(chan_sig, f, rq) }, {
-                        if(i == 15, { band = RHPF.ar(chan_sig, f, rq) }, { band = BPF.ar(chan_sig, f, rq) * (2.0 + (effective_q*0.05)); })
+                    var band, band_amp, gain_red;
+                    
+                    // STRICT ANALOG FILTER (SVF UPDATE v500.2)
+                    if(i == 0, { 
+                        // Lowpass output of SVF (arg 4 = 1.0)
+                        band = SVF.ar(chan_sig, f, svf_res, 1.0, 0.0, 0.0, 0.0, 0.0);
+                    }, {
+                        if(i == 15, { 
+                            // Highpass output of SVF (arg 6 = 1.0)
+                            band = SVF.ar(chan_sig, f, svf_res, 0.0, 0.0, 1.0, 0.0, 0.0);
+                        }, { 
+                            // Bandpass output of SVF (arg 5 = 1.0). 
+                            band = SVF.ar(chan_sig, f, svf_res, 0.0, 1.0, 0.0, 0.0, 0.0); 
+                        })
                     });
                     
-                    // Breathing Stabilizer
                     band_amp = Amplitude.kr(band, 0.01, 0.3); 
                     gain_red = 1.0 - ((band_amp - 0.25).max(0) * stabilizer * 2.0).tanh; 
-                    
                     band = band * gain_red;
 
                     Out.kr(bands_bus_base + i, Amplitude.kr(band));
-                    cmix = cmix + (band.tanh * amp * (1.0 - (abs(chan_idx - (i%2)) * spread)) * jitter * 2.8);
+                    
+                    // UPDATE v500.3: Asymmetric Saturation on Band Output
+                    cmix = cmix + (asym_sat.(band) * amp * (1.0 - (abs(chan_idx - (i%2)) * spread)) * jitter * 2.8);
                 });
                 cmix;
             });
             sig_filters = (bank_in * (1.0 - filter_mix)) + (bank_out * filter_mix);
             tap_post_filter = sig_filters;
             
-            // [NEW] BUTTERFLY CROSSFEED (Reverb Matrix)
+            // UPDATE v500.3: Filtered Crosstalk (Console Bleed)
+            // Using LPF at 800Hz for the cross-fed signal
             sig_post_reverb = [
-                sig_filters[0] + (sig_filters[1] * xfeed_amt * 0.7),
-                sig_filters[1] + (sig_filters[0] * xfeed_amt * 0.7)
+                sig_filters[0] + (LPF.ar(sig_filters[1], 800) * xfeed_amt * 0.7),
+                sig_filters[1] + (LPF.ar(sig_filters[0], 800) * xfeed_amt * 0.7)
             ];
             
-            // [NEW] GREYHOLE LITE (Modulated Schroeder Reverb)
             wet_reverb = sig_post_reverb.collect({ |chan, idx|
-                var p = DelayN.ar(chan, 0.1, 0.03); // 30ms Pre-Delay (Kills Dry Leak)
-                
-                // Parallel Modulated Comb Filters (Density)
+                var p = DelayN.ar(chan, 0.1, 0.03); 
                 var combs = 6.collect({ 
                     var dt = Rand(0.03, 0.07);
-                    var mod = LFNoise2.kr(Rand(0.1, 0.5)).range(0, 0.002); // Chorus modulation
+                    var mod = LFNoise2.kr(Rand(0.1, 0.5)).range(0, 0.002); 
                     CombL.ar(p, 0.2, dt + mod, reverb_time) 
                 }).sum;
-                
-                // Series Allpass Filters (Diffusion)
                 4.do({ |i| combs = AllpassN.ar(combs, 0.050, {Rand(0.01, 0.05)}.dup, 1); });
-                
-                combs * 0.2; // Gain compensation
+                combs * 0.2; 
             });
             
-            // Damping (Post-Tank)
             wet_reverb = LPF.ar(wet_reverb, reverb_damp);
-            
             final_signal = (sig_filters * (1-reverb_mix)) + (HPF.ar(wet_reverb, 10) * reverb_mix);
             tap_post_reverb = final_signal;
+            
+            LocalOut.ar(final_signal); 
 
-            // --- 3. LOOPERS ENGINE (TRANSPARENT) ---
+            // --- 3. LOOPERS ENGINE ---
             loop_outputs_sum = Silent.ar(2);
             loop_aux_sum = Silent.ar(2);
             4.do({ |i|
-                var b_idx = synth_buffers[i];
-                var bus_idx = track_buses[i];
-                var gate_rec = l_rec[i]; var gate_play = l_play[i]; var trk_vol = l_vol[i];
-                var trk_spd = l_speed[i]; var trk_start = l_start[i]; var trk_end = l_end[i];
-                var trk_src = l_src[i]; var trk_dub = l_dub[i]; var trk_aux = l_aux[i]; var trk_deg = l_deg[i];
-                var trk_xfade = l_xfade[i];
-                var trk_brake = l_brake[i]; 
-                
-                var trk_rec_lvl_db = l_rec_lvl[i];
-                var trk_rec_amp = trk_rec_lvl_db.dbamp;
-                
-                var trk_low = l_low[i]; var trk_high = l_high[i]; var trk_filter = l_filter[i];
-                var trk_pan = l_pan[i]; var trk_width = l_width[i];
-                
-                var seek_t = l_seek_t[i]; var seek_p = l_seek_p[i];
+                // 1. DECLARATIONS (STRICT)
+                var b_idx, bus_idx, gate_rec, gate_play;
+                var trk_vol, trk_spd, trk_start, trk_end;
+                var trk_src, trk_dub, trk_aux, trk_deg, trk_xfade, trk_brake;
+                var trk_rec_lvl_db, trk_rec_amp;
+                var trk_low, trk_high, trk_filter, trk_pan, trk_width;
+                var seek_t, seek_p;
                 var in, rate_slew, ptr, play_sig, rec_sig, cutoff;
                 var dynamic_cutoff, output_sig;
                 var target_buf;
                 var brake_mod, lfo_mod, brake_idx, lfo_lag_time; 
-                var start_pos, end_pos, fade_len, dist_start, dist_end, fade_in, fade_out, xfade_gain;
+                var start_pos, end_pos;
+                var fade_len, dist_start, dist_end, fade_in, fade_out, xfade_gain;
                 
+                var loop_ero, loop_dust_trig, loop_dropout_env, loop_gain_loss;
                 var corrosion_am, flutter_delay, deg_curve;
-                
                 var c_lpf, c_hpf, f_lpf, f_hpf;
                 var mid, side, new_l, new_r;
                 var eq_max_db, sat_drive;
+                var organic_brake_hpf, flux_gain;
+                var input_fade_in, input_fade_out, input_win_gain;
                 
-                // [NEW] DYNAMIC HPF (ANTI-THUMP)
-                var anti_thump_freq;
+                // 2. ASSIGNMENTS
+                b_idx = synth_buffers[i];
+                bus_idx = track_buses[i];
+                gate_rec = l_rec[i]; gate_play = l_play[i]; trk_vol = l_vol[i];
+                trk_spd = l_speed[i]; trk_start = l_start[i]; trk_end = l_end[i];
+                trk_src = l_src[i]; trk_dub = l_dub[i]; trk_aux = l_aux[i]; trk_deg = l_deg[i];
+                trk_xfade = l_xfade[i]; trk_brake = l_brake[i]; 
+                
+                trk_rec_lvl_db = l_rec_lvl[i];
+                trk_rec_amp = trk_rec_lvl_db.dbamp;
+                
+                trk_low = l_low[i]; trk_high = l_high[i]; trk_filter = l_filter[i];
+                trk_pan = l_pan[i]; trk_width = l_width[i];
+                
+                seek_t = l_seek_t[i]; seek_p = l_seek_p[i];
                 
                 target_buf = Select.kr(gate_rec > 0.1, [dummy_buf, b_idx]);
                 
@@ -306,42 +382,50 @@ Engine_Avant_lab_V : CroneEngine {
                 
                 brake_idx = (trk_brake * 4).round;
                 brake_mod = Select.kr(brake_idx, [1.0, 1.0, 1.0, 0.5, 0.0]);
-                // [FIX] Changed Lag to Lag3 for smoother brake release (No Thump)
                 brake_mod = Lag3.kr(brake_mod, 0.3);
                 lfo_mod = Select.kr(brake_idx, [1.0, LFNoise2.kr(2).range(0.95, 1.05), LFNoise2.kr(8).range(0.88, 1.12), LFNoise2.kr(4).range(0.95, 1.05), 1.0]);
-                
                 lfo_lag_time = Select.kr(brake_idx, [0.1, 0.25, 0.1, 0.05, 0.05]);
                 lfo_mod = Lag.kr(lfo_mod, lfo_lag_time);
-                
                 rate_slew = Lag.kr(trk_spd, 0.05) * brake_mod * lfo_mod; 
                 
-                // Anti-Thump Logic
-                anti_thump_freq = LinExp.kr(rate_slew.abs, 0.0, 1.0, 150, 10);
-                
-                ptr = Phasor.ar(seek_t, rate_slew * BufRateScale.kr(b_idx), 
-                                trk_start * BufFrames.kr(b_idx), trk_end * BufFrames.kr(b_idx),
-                                seek_p * BufFrames.kr(b_idx));
+                organic_brake_hpf = LinExp.kr(rate_slew.abs + 0.001, 0.001, 1.0, 250, 10);
+                organic_brake_hpf = Lag.kr(organic_brake_hpf, 0.1);
+                flux_gain = (rate_slew.abs * 5.0).clip(0, 1).pow(3);
                 
                 start_pos = trk_start * BufFrames.kr(b_idx);
                 end_pos = trk_end * BufFrames.kr(b_idx);
                 
-                // Constant Power Crossfade (Sine)
-                fade_len = trk_xfade * SampleRate.ir;
-                dist_start = (ptr - start_pos).abs; 
-                dist_end = (end_pos - ptr).abs;
-                fade_in = (dist_start / fade_len).clip(0, 1); 
-                fade_out = (dist_end / fade_len).clip(0, 1);
-                xfade_gain = (fade_in.min(fade_out) * 0.5 * pi).sin;
+                ptr = Phasor.ar(seek_t, rate_slew * BufRateScale.kr(b_idx), start_pos, end_pos, seek_p * BufFrames.kr(b_idx));
                 
+                // [FIX] Pointer display (Original formula)
                 Out.kr(pos_bus_base + i, ptr / BufFrames.kr(b_idx));
                 
-                play_sig = BufRd.ar(2, b_idx, ptr, 1, 4);
-                play_sig = play_sig * xfade_gain;
+                // CLASSIC WINDOW (Sine)
+                fade_len = trk_xfade * SampleRate.ir;
+                dist_start = (ptr - start_pos).abs; dist_end = (end_pos - ptr).abs;
+                fade_in = (dist_start / fade_len).clip(0, 1); fade_out = (dist_end / fade_len).clip(0, 1);
+                xfade_gain = (fade_in.min(fade_out) * 0.5 * pi).sin;
                 
-                deg_curve = trk_deg.pow(2.5); 
+                // Input Micro-Fade
+                input_fade_in = (dist_start / (0.005 * SampleRate.ir)).clip(0, 1);
+                input_fade_out = (dist_end / (0.005 * SampleRate.ir)).clip(0, 1);
+                input_win_gain = input_fade_in.min(input_fade_out);
+                
+                play_sig = BufRd.ar(2, b_idx, ptr, 1, 4);
+                
+                deg_curve = trk_deg.pow(3.0); 
                 corrosion_am = 1.0 - (LFNoise2.kr(8 + (i*2)).unipolar * deg_curve * 0.6);
                 play_sig = play_sig * corrosion_am;
-                flutter_delay = LFNoise2.ar(4 + (i*1.5)).range(0, 0.008 * deg_curve);
+                
+                loop_ero = LinLin.kr(trk_deg, 0.4, 1.0, 0.0, 0.5).max(0);
+                loop_dust_trig = Dust.kr(loop_ero * 15);
+                loop_dropout_env = Decay.kr(loop_dust_trig, 0.1);
+                loop_gain_loss = (loop_dropout_env * loop_ero).clip(0, 0.9);
+                play_sig = play_sig * (1.0 - loop_gain_loss);
+                
+                // UPDATE v500.3: Motor Inertia on Flutter (Audio Rate)
+                flutter_delay = OnePole.ar(LFNoise2.ar(4 + (i*1.5)).range(0, 0.008 * deg_curve), 0.90);
+                
                 play_sig = DelayC.ar(play_sig, 0.05, flutter_delay);
                 cutoff = LinExp.kr(deg_curve, 0, 1, 20000, 2100);
                 play_sig = LPF.ar(play_sig, cutoff);
@@ -350,15 +434,21 @@ Engine_Avant_lab_V : CroneEngine {
                 dynamic_cutoff = (rate_slew.abs * 20000).clip(10, 20000);
                 play_sig = LPF.ar(LPF.ar(play_sig, dynamic_cutoff), dynamic_cutoff);
                 
-                rec_sig = (in * trk_rec_amp) + (play_sig * trk_dub);
+                // [FIX] Apply Window BEFORE Feedback (Removes clicks)
+                play_sig = play_sig * xfade_gain;
                 
-                // Transparent Recording (No Ramp, No Filter)
+                // [FIX] Apply Window to Input (No Entry Clicks)
+                // [FIX] REMOVED LeakDC from loop (Fixes Alien Click)
+                // Only HPF on input to prevent DC buildup
+                rec_sig = (HPF.ar(in, 10.0) * input_win_gain * trk_rec_amp) + (play_sig * trk_dub);
+                
                 BufWr.ar(rec_sig.tanh, target_buf, ptr);
                 
                 output_sig = play_sig * gate_play.lag(0.05);
                 
-                // Apply Anti-Thump Filter
-                output_sig = HPF.ar(output_sig, anti_thump_freq);
+                // Apply Organic Brake to OUTPUT
+                output_sig = HPF.ar(output_sig, organic_brake_hpf);
+                output_sig = output_sig * flux_gain;
                 
                 output_sig = BLowShelf.ar(output_sig, 60, 4.0, trk_low);
                 output_sig = BHiShelf.ar(output_sig, 10000, 4.0, trk_high);
@@ -392,9 +482,8 @@ Engine_Avant_lab_V : CroneEngine {
             
             monitor_signal = Select.ar(main_src_sel, [tap_clean, tap_post_tape, tap_post_filter, tap_post_reverb]);
             
-            main_mon_amp = LinLin.kr(main_mon, 0, 1, -60, 12).dbamp * (main_mon > 0.001);
-            
-            master_out = Limiter.ar((monitor_signal * main_mon_amp) + loop_outputs_sum, 0.95);
+            // Master Soft-Clip
+            master_out = Limiter.ar(((monitor_signal * main_mon_amp) + loop_outputs_sum).tanh, 0.95);
             
             Out.ar(aux_return_bus_idx, loop_aux_sum);
             Out.ar(out_bus, master_out);
