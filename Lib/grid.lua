@@ -1,7 +1,5 @@
---- START OF FILE grid.lua.txt ---
-
--- Avant_lab_V lib/grid.lua | Version 110.3
--- FIX: Grid Transport respects Rec Behavior (Rec->Dub) & Length Calc fix
+-- Avant_lab_V lib/grid.lua | Version 500.4
+-- UPDATE: Freeze targets Reverb Time (not Mix) & Tape FB 100%. Smoother Ramps.
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -28,6 +26,7 @@ function Grid.init(state, device)
   state.transport_press_time = {0, 0, 0, 0}
   state.rnd_btn_val = 2
   state.rnd_btn_timer = 0
+  state.freeze_clock = nil 
 end
 
 local function draw_tape_view(state)
@@ -67,12 +66,19 @@ end
 
 local function draw_main_view(state)
   for i=1, 16 do
-    local amp = state.band_levels[i] or 0; local int_val = math.floor(amp * 49); levels_cache[i].int = int_val; levels_cache[i].frac = (amp * 49) - int_val
-  end
-  for i=1, 16 do
-    -- [FIX] Use visual_gain for Slew visualization
-    local db = state.visual_gain[i] or -60; 
+    local amp = state.band_levels[i] or 0
     
+    -- [UPDATE v500.1] Transversal Fix: Logarithmic scale mapped to Grid Height (0-6)
+    local db = 20 * math.log10(amp > 0.0001 and amp or 0.0001)
+    local height = util.linlin(-60, 0, 0, 6, db)
+    height = util.clamp(height, 0, 6)
+    
+    levels_cache[i].int = math.floor(height)
+    levels_cache[i].frac = height - math.floor(height)
+  end
+
+  for i=1, 16 do
+    local db = state.visual_gain[i] or -60; 
     local fader_h = math.floor(util.linlin(-60,0,1,6,db) + 0.5); if fader_h < 1 then fader_h = 1 end
     local sig = levels_cache[i]
     for h=1, 6 do
@@ -290,7 +296,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
            else is_current = (state.main_preset_selected == slot) end
            
            if presets_status[slot] == 0 then
-             -- SAVE (Sound Only)
              if is_tape_view then
                 local saved_tracks = {}
                 for i=1,4 do local t = state.tracks[i]; saved_tracks[i] = {speed=t.speed, vol=t.vol, loop_start=t.loop_start, loop_end=t.loop_end, state=t.state, overdub=t.overdub, file_path=t.file_path, l_low=t.l_low, l_high=t.l_high, l_filter=t.l_filter, l_pan=t.l_pan, l_width=t.l_width} end
@@ -309,7 +314,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
              end
              presets_status[slot] = 1
            elseif is_current then
-              -- UPDATE (Sound Only)
               if is_tape_view then
                 local saved_tracks = {}
                 for i=1,4 do local t = state.tracks[i]; saved_tracks[i] = {speed=t.speed, vol=t.vol, loop_start=t.loop_start, loop_end=t.loop_end, state=t.state, overdub=t.overdub, file_path=t.file_path, l_low=t.l_low, l_high=t.l_high, l_filter=t.l_filter, l_pan=t.l_pan, l_width=t.l_width} end
@@ -325,7 +329,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                 }
               end
            else
-              -- RECALL (Sound Only)
               if is_tape_view then
                  state.morph_tape_src = {}; for i=1,4 do state.morph_tape_src[i] = {speed=state.tracks[i].speed, vol=state.tracks[i].vol, l_low=state.tracks[i].l_low, l_high=state.tracks[i].l_high, l_filter=state.tracks[i].l_filter, l_pan=state.tracks[i].l_pan, l_width=state.tracks[i].l_width} end
                  state.morph_tape_active = true; state.morph_tape_slot = slot; state.morph_tape_start_time = util.time(); state.tape_preset_selected = slot
@@ -392,9 +395,25 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         local fx_type = ""; if x == 9 then fx_type = "kill" elseif x == 10 then fx_type = "freeze" elseif x == 11 then fx_type = "warble" elseif x == 12 then fx_type = "brake" end
         if z == 1 then
            if fx_type == "kill" then state.fx_memory["kill"] = params:get("pre_lpf"); params:set("pre_lpf", 150)
+           
+           -- [UPDATE v500.4] Freeze Logic: Ramps Reverb TIME, not Mix. Tape FB to 100%.
            elseif fx_type == "freeze" then 
-              state.fx_memory["freeze"] = {rev=params:get("reverb_mix"), fb=params:get("tape_fb")}
-              params:set("reverb_mix", 1.0); params:set("tape_fb", 0.98)
+              if state.freeze_clock then clock.cancel(state.freeze_clock) end
+              state.fx_memory["freeze"] = {rev_time=params:get("reverb_time"), fb=params:get("tape_fb")}
+              
+              params:set("tape_fb", 1.0) -- Tape FB to 100%
+              
+              state.freeze_clock = clock.run(function()
+                 local start_val = params:get("reverb_time")
+                 local target_val = 60.0 -- Max reverb time
+                 local steps = 10 -- 200ms / 0.02s
+                 for i=1, steps do
+                    local val = start_val + ((target_val - start_val) * (i/steps))
+                    params:set("reverb_time", val)
+                    clock.sleep(0.02)
+                 end
+              end)
+              
            elseif fx_type == "warble" then 
               state.fx_memory["warble"] = {w=params:get("tape_wow"), f=params:get("tape_flutter")}
               params:set("tape_wow", 1.0); params:set("tape_flutter", 1.0)
@@ -404,8 +423,24 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
            end
         elseif z == 0 then
            if fx_type == "kill" and state.fx_memory["kill"] then params:set("pre_lpf", state.fx_memory["kill"]); state.fx_memory["kill"] = nil
+           
+           -- [UPDATE v500.4] Freeze Release: Restore Reverb Time slowly (3s)
            elseif fx_type == "freeze" and state.fx_memory["freeze"] then 
-              params:set("reverb_mix", state.fx_memory["freeze"].rev); params:set("tape_fb", state.fx_memory["freeze"].fb); state.fx_memory["freeze"] = nil
+              if state.freeze_clock then clock.cancel(state.freeze_clock) end
+              params:set("tape_fb", state.fx_memory["freeze"].fb)
+              
+              state.freeze_clock = clock.run(function()
+                 local start_val = params:get("reverb_time")
+                 local target_val = state.fx_memory["freeze"].rev_time
+                 local steps = 150 -- 3 seconds / 0.02s
+                 for i=1, steps do
+                    local val = start_val + ((target_val - start_val) * (i/steps))
+                    params:set("reverb_time", val)
+                    clock.sleep(0.02)
+                 end
+                 state.fx_memory["freeze"] = nil
+              end)
+              
            elseif fx_type == "warble" and state.fx_memory["warble"] then 
               params:set("tape_wow", state.fx_memory["warble"].w); params:set("tape_flutter", state.fx_memory["warble"].f); state.fx_memory["warble"] = nil
            elseif fx_type == "brake" then 
@@ -437,15 +472,13 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                  local st = state.tracks[trk].state
                  local next_st = 3 
                  
-                 -- [FIX] Rec Behavior Logic applied to Grid
                  if st == 1 then 
                     next_st = 2 
                  elseif st == 2 then 
-                    -- Check Parameter
                     if params:get("rec_behavior") == 2 then
-                       next_st = 4 -- Overdub
+                       next_st = 4 
                     else
-                       next_st = 3 -- Play
+                       next_st = 3 
                     end
                  elseif st == 3 then next_st = 4 
                  elseif st == 4 then next_st = 3 
@@ -457,7 +490,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                  if next_st == 2 then 
                     state.tracks[trk].start_abs_time = now
                  elseif st == 2 and (next_st == 3 or next_st == 4) then
-                    -- [FIX] Calculate length if going to Play OR Overdub
                     local raw_time = now - (state.tracks[trk].start_abs_time or now)
                     local speed_factor = math.abs(state.tracks[trk].speed or 1)
                     if speed_factor < 0.01 then speed_factor = 1.0 end
@@ -528,7 +560,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
            local tgt_speed = VS_VALS[idx] or 1.0
            state.ribbon_target_speed = tgt_speed
            
-           -- [FIX] APPLY IMMEDIATELY IN MOMENTARY MODE
            if state.grid_momentary_mode then
               Loopers.set_speed_slew(target, state.ribbon_target_speed, 0.1, state, state.ribbon_start_speed)
            end
@@ -538,7 +569,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
               Loopers.set_speed_slew(target, state.ribbon_memory[target], 0.1, state, state.tracks[target].speed)
               state.ribbon_memory[target] = nil
            else
-              -- Standard Mode (Release logic)
               if not state.grid_momentary_mode then
                  local dur = util.time() - state.ribbon_press_time
                  local slew = 0
