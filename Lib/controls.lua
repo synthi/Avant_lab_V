@@ -1,5 +1,5 @@
--- Avant_lab_V lib/controls.lua | Version 110.0
--- FIX: Added Fates Encoder 4 Support (Global Feedback / Shift: Track Degrade)
+-- Avant_lab_V lib/controls.lua | Version 301.0
+-- UPDATE: Page Reordering (2=Filter, 5=Ping, 6=Time)
 
 local Controls = {}
 local fileselect = require 'fileselect' 
@@ -30,8 +30,72 @@ Pages[1] = {
   end
 }
 
--- PAGE 2 (PING)
+-- PAGE 2 (FILTER BANK - MOVED FROM P6)
 Pages[2] = {
+  enc = function(n, d, s)
+    if not (s.k1_held or s.mod_shift_16) then
+      if n==1 then params:delta("filter_mix", d*0.5)
+      elseif n==2 then params:delta("pre_hpf", d)
+      elseif n==3 then params:delta("pre_lpf", d) end
+    else
+      if n==1 then params:delta("stabilizer", d*0.5)
+      elseif n==2 then params:delta("filter_drift", d*0.5)
+      elseif n==3 then params:delta("spread", d*0.5) end
+    end
+  end,
+  key = function(n, z, s)
+    if n==2 then
+       if z==1 then s.saved_fmix = params:get("filter_mix"); params:set("filter_mix", 0)
+       else params:set("filter_mix", s.saved_fmix or 1) end
+    elseif n==3 and z==1 then 
+       for i=1, 16 do local rnd = (math.random() * 60) - 60; s.bands_gain[i] = rnd; engine.band_gain(i-1, rnd) end
+    end
+  end
+}
+
+-- PAGE 3 (MIX)
+Pages[3] = {
+  enc = function(n, d, s)
+    if not (s.k1_held or s.mod_shift_16) then
+      if n==1 then params:delta("reverb_mix", d*0.5)
+      elseif n==2 then params:delta("rm_mix", d*0.5)
+      elseif n==3 then params:delta("main_mon", d*0.5) end
+    else
+      if n==1 then params:delta("system_dirt", d)
+      elseif n==2 then params:delta("rm_freq", d*0.1)
+      elseif n==3 then params:delta("noise_amp", d*0.5) end
+    end
+  end,
+  key = function(n, z, s)
+    if n==2 and z==1 then local w = params:get("rm_wave"); w = w%4 + 1; params:set("rm_wave", w)
+    elseif n==3 and z==1 then local nt = params:get("noise_type"); params:set("noise_type", nt == 2 and 0 or nt + 1) end
+  end
+}
+
+-- PAGE 4 (TAPE)
+Pages[4] = {
+  enc = function(n, d, s)
+    if not (s.k1_held or s.mod_shift_16) then
+      if n==1 then params:delta("tape_mix", d*0.5)
+      elseif n==2 then params:delta("tape_time", d*0.5)
+      elseif n==3 then params:delta("tape_fb", d*0.5) end
+    else
+      if n==1 then params:delta("tape_erosion", d*0.5)
+      elseif n==2 then params:delta("tape_wow", d*0.5)
+      elseif n==3 then params:delta("tape_flutter", d*0.5) end
+    end
+  end,
+  key = function(n, z, s)
+    if n==2 then engine.tape_brake(z); s.k2_held_tape = (z == 1)
+    elseif n==3 then
+      if z==1 then s.saved_tape_fb = params:get("tape_fb"); params:set("tape_fb", 1.0)
+      else params:set("tape_fb", s.saved_tape_fb or 0.0) end
+    end
+  end
+}
+
+-- PAGE 5 (PING - MOVED FROM P2)
+Pages[5] = {
   enc = function(n, d, s)
     local mode = params:get("ping_mode")
     if mode == 1 then 
@@ -62,49 +126,8 @@ Pages[2] = {
   end
 }
 
--- PAGE 3 (MIX)
-Pages[3] = {
-  enc = function(n, d, s)
-    if not (s.k1_held or s.mod_shift_16) then
-      if n==1 then params:delta("reverb_mix", d*0.5)
-      elseif n==2 then params:delta("rm_mix", d*0.5)
-      elseif n==3 then params:delta("main_mon", d*0.5) end
-    else
-      if n==1 then params:delta("system_dirt", d)
-      elseif n==2 then params:delta("rm_freq", d*0.1)
-      elseif n==3 then params:delta("noise_amp", d*0.5) end
-    end
-  end,
-  key = function(n, z, s)
-    if n==2 and z==1 then local w = params:get("rm_wave"); w = w%4 + 1; params:set("rm_wave", w)
-    elseif n==3 and z==1 then local nt = params:get("noise_type"); params:set("noise_type", nt == 1 and 2 or 1) end
-  end
-}
-
--- PAGE 4 (TAPE)
-Pages[4] = {
-  enc = function(n, d, s)
-    if not (s.k1_held or s.mod_shift_16) then
-      if n==1 then params:delta("tape_mix", d*0.5)
-      elseif n==2 then params:delta("tape_time", d*0.5)
-      elseif n==3 then params:delta("tape_fb", d*0.5) end
-    else
-      if n==1 then params:delta("tape_erosion", d*0.5)
-      elseif n==2 then params:delta("tape_wow", d*0.5)
-      elseif n==3 then params:delta("tape_flutter", d*0.5) end
-    end
-  end,
-  key = function(n, z, s)
-    if n==2 then engine.tape_brake(z); s.k2_held_tape = (z == 1)
-    elseif n==3 then
-      if z==1 then s.saved_tape_fb = params:get("tape_fb"); params:set("tape_fb", 1.0)
-      else params:set("tape_fb", s.saved_tape_fb or 0.0) end
-    end
-  end
-}
-
--- PAGE 5 (TIME)
-Pages[5] = {
+-- PAGE 6 (TIME - MOVED FROM P5)
+Pages[6] = {
   enc = function(n, d, s)
     local suffix = (s.time_page_focus == "MAIN") and "_main" or "_tape"
     if not (s.k1_held or s.mod_shift_16) then
@@ -121,29 +144,6 @@ Pages[5] = {
     if n==2 and z==1 then s.time_page_focus = (s.time_page_focus == "MAIN") and "TAPE" or "MAIN"; Grid.redraw(s)
     elseif n==3 and z==1 then 
        s.morph_fast_mode = not s.morph_fast_mode
-    end
-  end
-}
-
--- PAGE 6 (FILTER)
-Pages[6] = {
-  enc = function(n, d, s)
-    if not (s.k1_held or s.mod_shift_16) then
-      if n==1 then params:delta("filter_mix", d*0.5)
-      elseif n==2 then params:delta("pre_hpf", d)
-      elseif n==3 then params:delta("pre_lpf", d) end
-    else
-      if n==1 then params:delta("stabilizer", d*0.5)
-      elseif n==2 then params:delta("filter_drift", d*0.5)
-      elseif n==3 then params:delta("spread", d*0.5) end
-    end
-  end,
-  key = function(n, z, s)
-    if n==2 then
-       if z==1 then s.saved_fmix = params:get("filter_mix"); params:set("filter_mix", 0)
-       else params:set("filter_mix", s.saved_fmix or 1) end
-    elseif n==3 and z==1 then 
-       for i=1, 16 do local rnd = (math.random() * 60) - 60; s.bands_gain[i] = rnd; engine.band_gain(i-1, rnd) end
     end
   end
 }
@@ -225,18 +225,13 @@ Pages[9] = {
 }
 
 function Controls.enc(n, d, state)
-  -- [FIX] FATES ENCODER 4 SUPPORT
-  -- This block intercepts E4 before page logic
   if n == 4 then
      if state.k1_held or state.mod_shift_16 then
-        -- Shift + E4: Control Degrade (Wow) of Selected Track
-        -- Uses delta_param to handle clamping and refresh
         Loopers.delta_param("wow", d, state)
      else
-        -- E4: Global Feedback
         params:delta("feedback", d)
      end
-     return -- Stop processing, don't send E4 to pages
+     return 
   end
 
   local p = Pages[state.current_page]
