@@ -1,5 +1,5 @@
--- Avant_lab_V lib/controls.lua | Version 301.0
--- UPDATE: Page Reordering (2=Filter, 5=Ping, 6=Time)
+-- Avant_lab_V lib/controls.lua | Version 500.16
+-- UPDATE: K2 Logic for Bass Focus Option
 
 local Controls = {}
 local fileselect = require 'fileselect' 
@@ -12,7 +12,7 @@ local Pages = {}
 -- PAGE 1 (GLOBAL)
 Pages[1] = {
   enc = function(n, d, s)
-    if not (s.k1_held or s.mod_shift_16) then
+    if not (s.k1_held or s.mod_shift_16 or s.grid_shift_active) then
       if n==1 then s.preview_scale_idx = util.clamp(s.preview_scale_idx + d, 1, #Scales.list)
       elseif n==2 then params:delta("feedback", d)
       elseif n==3 then params:delta("global_q", d) end
@@ -30,10 +30,10 @@ Pages[1] = {
   end
 }
 
--- PAGE 2 (FILTER BANK - MOVED FROM P6)
+-- PAGE 2 (FILTER BANK)
 Pages[2] = {
   enc = function(n, d, s)
-    if not (s.k1_held or s.mod_shift_16) then
+    if not (s.k1_held or s.mod_shift_16 or s.grid_shift_active) then
       if n==1 then params:delta("filter_mix", d*0.5)
       elseif n==2 then params:delta("pre_hpf", d)
       elseif n==3 then params:delta("pre_lpf", d) end
@@ -56,7 +56,7 @@ Pages[2] = {
 -- PAGE 3 (MIX)
 Pages[3] = {
   enc = function(n, d, s)
-    if not (s.k1_held or s.mod_shift_16) then
+    if not (s.k1_held or s.mod_shift_16 or s.grid_shift_active) then
       if n==1 then params:delta("reverb_mix", d*0.5)
       elseif n==2 then params:delta("rm_mix", d*0.5)
       elseif n==3 then params:delta("main_mon", d*0.5) end
@@ -75,7 +75,7 @@ Pages[3] = {
 -- PAGE 4 (TAPE)
 Pages[4] = {
   enc = function(n, d, s)
-    if not (s.k1_held or s.mod_shift_16) then
+    if not (s.k1_held or s.mod_shift_16 or s.grid_shift_active) then
       if n==1 then params:delta("tape_mix", d*0.5)
       elseif n==2 then params:delta("tape_time", d*0.5)
       elseif n==3 then params:delta("tape_fb", d*0.5) end
@@ -94,12 +94,12 @@ Pages[4] = {
   end
 }
 
--- PAGE 5 (PING - MOVED FROM P2)
+-- PAGE 5 (PING)
 Pages[5] = {
   enc = function(n, d, s)
     local mode = params:get("ping_mode")
     if mode == 1 then 
-      if not (s.k1_held or s.mod_shift_16) then
+      if not (s.k1_held or s.mod_shift_16 or s.grid_shift_active) then
         if n==1 then params:delta("ping_rate", d)
         elseif n==2 then params:delta("ping_jitter", d)
         elseif n==3 then params:delta("ping_timbre", d) end
@@ -109,7 +109,7 @@ Pages[5] = {
         elseif n==3 then params:delta("ping_amp", d) end
       end
     else 
-      if not (s.k1_held or s.mod_shift_16) then
+      if not (s.k1_held or s.mod_shift_16 or s.grid_shift_active) then
         if n==1 then params:delta("ping_steps", d)
         elseif n==2 then local st = params:get("ping_steps"); local h = params:get("ping_hits"); params:set("ping_hits", util.clamp(h+d, 0, st))
         elseif n==3 then params:delta("ping_div", d) end
@@ -126,11 +126,11 @@ Pages[5] = {
   end
 }
 
--- PAGE 6 (TIME - MOVED FROM P5)
+-- PAGE 6 (TIME)
 Pages[6] = {
   enc = function(n, d, s)
     local suffix = (s.time_page_focus == "MAIN") and "_main" or "_tape"
-    if not (s.k1_held or s.mod_shift_16) then
+    if not (s.k1_held or s.mod_shift_16 or s.grid_shift_active) then
       if n==1 then params:delta("seq_rate"..suffix, d)
       elseif n==2 then params:delta("fader_slew", d)
       elseif n==3 then params:delta("preset_morph"..suffix, d) end
@@ -151,7 +151,7 @@ Pages[6] = {
 -- PAGE 7 (LOOPERS)
 Pages[7] = {
   enc = function(n, d, s)
-    if (s.k1_held or s.mod_shift_16) then
+    if (s.k1_held or s.mod_shift_16 or s.grid_shift_active) then
       if n==1 then Loopers.delta_param("rec_level", d, s) 
       elseif n==2 then Loopers.delta_param("start", d, s)
       elseif n==3 then Loopers.delta_param("end", d, s) end 
@@ -206,7 +206,7 @@ Pages[9] = {
   enc = function(n, d, s)
     local trk = s.mixer_sel
     local t = s.tracks[trk]
-    if not (s.k1_held or s.mod_shift_16) then
+    if not (s.k1_held or s.mod_shift_16 or s.grid_shift_active) then
        if n==1 then t.vol = util.clamp(t.vol + d*0.01, 0, 1); Loopers.refresh(trk, s) 
        elseif n==2 then t.l_low = util.clamp(t.l_low + d*0.1, -18, 18); Loopers.refresh(trk, s) 
        elseif n==3 then t.l_high = util.clamp(t.l_high + d*0.1, -18, 18); Loopers.refresh(trk, s) end 
@@ -224,9 +224,32 @@ Pages[9] = {
   end
 }
 
+-- PAGE 10 (MASTER) [UPDATED v500.16]
+Pages[10] = {
+  enc = function(n, d, s)
+    if not (s.k1_held or s.mod_shift_16 or s.grid_shift_active) then
+      if n==1 then params:delta("main_mon", d*0.5)
+      elseif n==2 then params:delta("comp_thresh", d)
+      elseif n==3 then params:delta("comp_ratio", d) end
+    else
+      -- Shift Controls
+      if n==1 then params:delta("limiter_ceil", d)
+      elseif n==2 then params:delta("balance", d)
+      elseif n==3 then params:delta("comp_drive", d) end
+    end
+  end,
+  key = function(n, z, s)
+    if n==2 and z==1 then 
+       -- K2: Cycle Bass Focus (Option 1-4)
+       local bf = params:get("bass_focus")
+       params:set("bass_focus", (bf % 4) + 1)
+    end
+  end
+}
+
 function Controls.enc(n, d, state)
   if n == 4 then
-     if state.k1_held or state.mod_shift_16 then
+     if state.k1_held or state.mod_shift_16 or state.grid_shift_active then
         Loopers.delta_param("wow", d, state)
      else
         params:delta("feedback", d)
@@ -247,8 +270,8 @@ function Controls.key(n, z, state)
   end
   
   if state.k1_held and z==1 then
-    if n==2 then state.current_page = state.current_page - 1; if state.current_page < 1 then state.current_page = 9 end 
-    elseif n==3 then state.current_page = state.current_page + 1; if state.current_page > 9 then state.current_page = 1 end 
+    if n==2 then state.current_page = state.current_page - 1; if state.current_page < 1 then state.current_page = 10 end -- Wrap to 10
+    elseif n==3 then state.current_page = state.current_page + 1; if state.current_page > 10 then state.current_page = 1 end 
     end
     return
   end
