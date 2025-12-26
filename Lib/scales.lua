@@ -1,5 +1,5 @@
--- Avant_lab_V lib/scales.lua | Version 103.0
--- EXPANDED: Added Gongs, Resonators, Nature & Renamed Mods
+-- Avant_lab_V lib/scales.lua | Version 500.6
+-- UPDATE: Manually Sorted Pythagorean Scale
 
 local Scales = {}
 Scales.list = {
@@ -68,7 +68,9 @@ Scales.list = {
   {name = "Chromatic", data = {261, 277, 293, 311, 329, 349, 370, 392, 415, 440, 466, 493, 523, 554, 587, 622}},
   {name = "Bohlen-Pierce", data = {100, 146, 213, 311, 453, 660, 963, 1405, 2050, 2990, 4362, 6363, 9283, 13543, 19764, 100}},
   {name = "Prometheus", data = {65, 92, 116, 164, 220, 293, 392, 554, 698, 987, 1318, 1760, 2349, 3136, 4186, 5274}},
-  {name = "Pythagorean", data = {100, 150, 225, 337, 506, 759, 1139, 1708, 2562, 3844, 5766, 8649, 12974, 19461, 100, 200}},
+  
+  -- [UPDATE v500.6] Manually Sorted Pythagorean Scale (Low to High)
+  {name = "Pythagorean", data = {100, 150, 200, 225, 337, 506, 759, 1139, 1708, 2562, 3844, 5766, 8649, 12974, 19461, 20000}},
 
   -- === 6. INSTRUMENTS & OTHERS ===
   {name = "Tam Tam 40", data = {35, 55, 75, 95, 120, 150, 190, 240, 320, 450, 600, 850, 1200, 2500, 4000, 7000}},
