@@ -1,5 +1,5 @@
--- Avant_lab_V lib/loopers.lua | Version 321.0
--- UPDATE: Fixed Loop End Calculation (Fixes Pointer/Playback), Simple Varispeed
+-- Avant_lab_V lib/loopers.lua | Version 321.1
+-- UPDATE: Added Physical Buffer Clear (Fixes Ghost Audio on Rec Start)
 
 local Loopers = {}
 local util = require 'util'
@@ -123,6 +123,10 @@ function Loopers.clear(idx, state)
    state.tape_filenames[idx] = nil 
    t.is_dirty = false
    t.file_path = nil
+   
+   -- [UPDATE v321.1] Physical Buffer Zeroing
+   if engine.clear then engine.clear(idx) end
+   
    Loopers.refresh(idx, state)
    print("Track " .. idx .. " CLEARED")
 end
