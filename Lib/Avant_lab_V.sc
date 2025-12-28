@@ -1,5 +1,5 @@
-// Engine_Avant_lab_V.sc | Version 500.13
-// UPDATE: Fix Control Syntax (Args vs KR), dB Conversions, Master Chain Active
+// Engine_Avant_lab_V.sc | Version 600.5
+// yUPDATE: All-BPF Topology (Serge Style), Frequency-Based Physics Gain, Unified Resonance
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -40,11 +40,10 @@ Engine_Avant_lab_V : CroneEngine {
              bands_bus_base=0, pos_bus_base=0, gr_bus_idx=0,
              t1_bus=0, t2_bus=0, t3_bus=0, t4_bus=0,
              gonio_source=1, main_src_sel=3,
-             // Master Params (Controlled by Lua in dB/Ratio)
-             comp_thresh= -12.0, comp_ratio=2.0, comp_drive=0.0, comp_gain=0.0,
+             comp_thresh=0.5, comp_ratio=2.0, comp_drive=0.0, comp_gain=0.0, 
              bass_focus_mode=0, limiter_ceil=0.0, balance=0.0| 
 
-            // --- 1. DECLARATIONS ---
+            // --- 1. DECLARATIONS (STRICT ORDER) ---
             var fb_amt, global_q, xfeed_amt, reverb_mix;
             var reverb_time, reverb_damp;
             var input_amp, noise_amp, noise_type;
@@ -88,7 +87,7 @@ Engine_Avant_lab_V : CroneEngine {
 
             // --- 3. ASSIGNMENTS ---
             
-            fb_amt = \fb_amt.kr(0) * 0.3;
+            fb_amt = \fb_amt.kr(0) * 0.6;
             global_q = \global_q.kr(1);
             xfeed_amt = \xfeed_amt.kr(0);
             reverb_mix = \reverb_mix.kr(1);
@@ -245,8 +244,9 @@ Engine_Avant_lab_V : CroneEngine {
             rm_carrier = (rm_osc * 1.5).tanh + (PinkNoise.ar(0.005 * rm_inst));
             
             rm_stereo = [sig_main_tape[0].tanh * rm_carrier, sig_main_tape[1].tanh * rm_carrier] * 2.5;
-            rm_stereo = AnalogLoss.ar(rm_stereo, 0.5, 0.5, 0.5, 1.0); 
-            rm_stereo = AnalogDegrade.ar(rm_stereo, 0.1, 0.1, 0.1, 0.5); 
+            
+            // Slew Rate Limiting (Native)
+            rm_stereo = Slew.ar(rm_stereo, 4000, 4000);
             
             rm_processed_l = rm_stereo[0];
             rm_processed_r = rm_stereo[1];
@@ -254,39 +254,51 @@ Engine_Avant_lab_V : CroneEngine {
             bank_in = [(sig_main_tape[0] * (1.0 - rm_mix)) + (rm_processed_l * rm_mix), (sig_main_tape[1] * (1.0 - rm_mix)) + (rm_processed_r * rm_mix)];
             bank_in = HPF.ar(bank_in, pre_hpf); bank_in = LPF.ar(bank_in, pre_lpf);
 
-            // --- FILTER BANK (SVF) ---
+            // --- FILTER BANK (ALL BPF MODE - SERGE STYLE) ---
             bank_out = bank_in.collect({ |chan_sig, chan_idx| 
                 var cmix = 0;
                 16.do({ |i|
-                    var key_g = ("g" ++ i).asSymbol; var key_f = ("f" ++ i).asSymbol;
-                    var db = Lag3.kr(NamedControl.kr(key_g, -60.0), fader_lag);
-                    var amp = db.dbamp; 
-                    var f = NamedControl.kr(key_f, init_freqs[i.clip(0,15)], 0.05) * (1 + (LFNoise2.kr(0.05+(i*0.02)).range(0.9,1.1) * filter_drift * 0.06));
-                    var jitter = LFNoise1.kr(1.0+(i*0.1)).range(1.0-(filter_drift*0.15), 1.0+(filter_drift*0.05));
-                    var effective_q = (global_q * LinLin.kr(db, -60, 0, 0.5, 1.2)) / (1.0 + (f/12000));
-                    var mod_q = effective_q * LFNoise2.kr(0.2).range(1.0, 1.0-(filter_drift*0.3));
-                    var svf_res = (1.0 - (1.0 / mod_q.max(0.5))).clip(0.0, 1.0);
-                    var band, band_amp, gain_red;
+                    // Declaraciones
+                    var key_g, key_f, db, amp, f, jitter, effective_q, mod_q, rq;
+                    var band, band_amp, gain_red, input_gain, drive_sig;
                     
-                    var input_gain = i.linlin(0, 15, 1.2, 0.85);
-                    var drive_sig = chan_sig * input_gain;
+                    key_g = ("g" ++ i).asSymbol; key_f = ("f" ++ i).asSymbol;
+                    db = Lag3.kr(NamedControl.kr(key_g, -60.0), fader_lag);
+                    amp = db.dbamp; 
                     
-                    if(i == 0, { 
-                        band = SVF.ar(drive_sig, f, svf_res, 1.0, 0.0, 0.0, 0.0, 0.0);
-                    }, {
-                        if(i == 15, { 
-                            band = SVF.ar(drive_sig, f, svf_res, 0.0, 0.0, 1.0, 0.0, 0.0);
-                        }, { 
-                            band = SVF.ar(drive_sig, f, svf_res, 0.0, 1.0, 0.0, 0.0, 0.0); 
-                        })
-                    });
+                    // Frecuencia con Drift analógico
+                    f = NamedControl.kr(key_f, init_freqs[i.clip(0,15)], 0.05) * (1 + (LFNoise2.kr(0.05+(i*0.02)).range(0.9,1.1) * filter_drift * 0.06));
+                    jitter = LFNoise1.kr(1.0+(i*0.1)).range(1.0-(filter_drift*0.15), 1.0+(filter_drift*0.05));
                     
+                    // Q Dinámica (Sustain del "Piano")
+                    effective_q = (global_q * LinLin.kr(db, -60, 0, 0.5, 1.2)) / (1.0 + (f/12000));
+                    mod_q = effective_q * LFNoise2.kr(0.2).range(1.0, 1.0-(filter_drift*0.3));
+                    rq = (1.0 / mod_q.max(0.5)).clip(0.001, 2.0);
+                    
+                    // --- CORRECCIÓN CLÍNICA DE GANANCIA (DEPENDIENTE DE FRECUENCIA) ---
+                    // Ya no depende de 'i'. Depende puramente de la física de 'f'.
+                    // Fórmula Unificada: (600 / f)^0.28 con clip de seguridad.
+                    // Boost en graves, soporte en medios-bajos, suelo en agudos.
+                    
+                    input_gain = (600 / f).pow(0.28).clip(1.0, 3.0);
+                    
+                    drive_sig = chan_sig * input_gain;
+                    
+                    // --- TOPOLOGÍA: TODOS BPF ---
+                    // Esto soluciona la saturación de extremos y permite mapeo libre de frecuencias.
+                    // El multiplicador (2.0 + ...) es el Makeup Gain por resonancia.
+                    
+                    band = BPF.ar(drive_sig, f, rq) * (2.0 + (mod_q * 0.05)); 
+                    
+                    // --- Estabilizador (Limitador por Banda) ---
                     band_amp = Amplitude.kr(band, 0.01, 0.3); 
+                    // Umbral ajustado a 0.25 para permitir "cantar" sin distorsión digital dura
                     gain_red = 1.0 - ((band_amp - 0.25).max(0) * stabilizer * 2.0).tanh; 
                     band = band * gain_red;
 
                     Out.kr(bands_bus_base + i, Amplitude.kr(band));
                     
+                    // Suma al bus principal con saturación asimétrica
                     cmix = cmix + (LeakDC.ar(asym_sat.(band)) * amp * (1.0 - (abs(chan_idx - (i%2)) * spread)) * jitter * 2.8);
                 });
                 cmix;
@@ -306,6 +318,7 @@ Engine_Avant_lab_V : CroneEngine {
                     var mod = LFNoise2.kr(Rand(0.1, 0.3)).range(0, 0.0025); 
                     CombL.ar(p, 0.2, dt + mod, reverb_time) 
                 }).sum;
+                // No .dup
                 4.do({ |i| combs = AllpassN.ar(combs, 0.050, Rand(0.01, 0.05), 1); });
                 combs * 0.2; 
             });
@@ -340,6 +353,7 @@ Engine_Avant_lab_V : CroneEngine {
                 var eq_max_db, sat_drive;
                 var organic_brake_hpf, flux_gain;
                 var input_fade_in, input_fade_out, input_win_gain;
+                var sig_out, sig_dub; 
                 
                 b_idx = synth_buffers[i];
                 bus_idx = track_buses[i];
@@ -393,10 +407,15 @@ Engine_Avant_lab_V : CroneEngine {
                 play_sig = (play_sig * (1 + (deg_curve * 0.8))).tanh;
                 dynamic_cutoff = (rate_slew.abs * 20000).clip(10, 20000);
                 play_sig = LPF.ar(LPF.ar(play_sig, dynamic_cutoff), dynamic_cutoff);
-                play_sig = play_sig * xfade_gain;
-                rec_sig = (HPF.ar(in, 10.0) * input_win_gain * trk_rec_amp) + (play_sig * trk_dub);
+                
+                sig_out = play_sig * xfade_gain; 
+                sig_dub = play_sig; 
+                
+                rec_sig = (HPF.ar(in, 10.0) * input_win_gain * trk_rec_amp) + (sig_dub * trk_dub);
+                
                 BufWr.ar(rec_sig.tanh, target_buf, ptr);
-                output_sig = play_sig * gate_play.lag(0.05);
+                
+                output_sig = sig_out * gate_play; 
                 output_sig = HPF.ar(output_sig, organic_brake_hpf);
                 output_sig = output_sig * flux_gain;
                 output_sig = BLowShelf.ar(output_sig, 60, 4.0, trk_low);
@@ -421,26 +440,22 @@ Engine_Avant_lab_V : CroneEngine {
                 loop_aux_sum = loop_aux_sum + (output_sig * trk_aux);
             });
             
-            // [UPDATE v500.13] MASTER BUS PROCESSING (Fix Control Syntax)
             monitor_signal = Select.ar(main_src_sel, [tap_clean, tap_post_tape, tap_post_filter, tap_post_reverb]);
             master_out = monitor_signal + loop_outputs_sum;
             
-            // Bass Focus (4-Stage Selector)
             bass_mono_sig_50 = LPF.ar(master_out, 50).sum;
             bass_mono_sig_100 = LPF.ar(master_out, 100).sum;
             bass_mono_sig_200 = LPF.ar(master_out, 200).sum;
             
             master_out = Select.ar(bass_focus_mode, [
-                master_out, // 0: Off
-                HPF.ar(master_out, 50) + (bass_mono_sig_50 ! 2), // 1: 50Hz
-                HPF.ar(master_out, 100) + (bass_mono_sig_100 ! 2), // 2: 100Hz
-                HPF.ar(master_out, 200) + (bass_mono_sig_200 ! 2)  // 3: 200Hz
+                master_out, 
+                HPF.ar(master_out, 50) + (bass_mono_sig_50 ! 2),
+                HPF.ar(master_out, 100) + (bass_mono_sig_100 ! 2),
+                HPF.ar(master_out, 200) + (bass_mono_sig_200 ! 2)
             ]);
             
-            // Comp Drive (dB to Linear)
             driven_sig = master_out * comp_drive.dbamp;
             
-            // Glue Compressor
             master_glue = Compander.ar(driven_sig, driven_sig, 
                 thresh: comp_thresh.dbamp, 
                 slopeBelow: 1.0, 
@@ -449,15 +464,12 @@ Engine_Avant_lab_V : CroneEngine {
                 relaxTime: 0.1
             );
             
-            // GR Calc: (Input * Drive) - Compressed
             gr_sig = (Peak.kr(driven_sig, Impulse.kr(20)) - Peak.kr(master_glue, Impulse.kr(20))).max(0);
             Out.kr(gr_bus_idx, LagUD.kr(gr_sig, 0, 0.1));
             
-            // Balance & Limiter
             master_glue = Balance2.ar(master_glue[0], master_glue[1], balance);
             master_out = Limiter.ar(master_glue.tanh, limiter_ceil.dbamp);
             
-            // Metering (Pre-Monitor)
             gonio_sig = Select.ar(gonio_source, [final_signal, master_out]);
             Out.kr(bus_l_idx, LagUD.kr(Peak.kr(gonio_sig[0], Impulse.kr(20)), 0, 0.1));
             Out.kr(bus_r_idx, LagUD.kr(Peak.kr(gonio_sig[1], Impulse.kr(20)), 0, 0.1));
