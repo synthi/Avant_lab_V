@@ -1,5 +1,5 @@
--- Avant_lab_V lib/grid.lua | Version 500.17
--- UPDATE: Freeze Button Logic Fix (Race Condition)
+-- Avant_lab_V lib/grid.lua | Version 500.29
+-- UPDATE: FIXED Grid.key Logic (Removed stray redraw code), Cleaned Row 7 Structure
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -27,27 +27,70 @@ function Grid.init(state, device)
   state.rnd_btn_val = 2
   state.rnd_btn_timer = 0
   state.freeze_clock = nil 
+  state.freeze_btn_level = 2 
   state.grid_shift_active = false
   state.page_press_time = 0
 end
 
 local function draw_tape_view(state)
   local now = util.time()
+  
+  -- Breathing Pulse for Track Selector (Row 5)
+  local sel_pulse = math.floor(util.linlin(-1, 1, 13, 15, math.sin(now * 8)))
+
+  -- Living Tape Background Pulses (Rows 1-4) [0-2 Range]
+  local rec_pulse = math.floor(util.linlin(-1, 1, 0, 2.9, math.sin(now * 8))) 
+  local dub_pulse = math.floor(util.linlin(-1, 1, 0, 2.9, math.sin(now * 4))) 
+  rec_pulse = util.clamp(rec_pulse, 0, 2)
+  dub_pulse = util.clamp(dub_pulse, 0, 2)
+
   for t=1, 4 do
     local track = state.tracks[t]
+    
+    -- 1. Determine Background Brightness
+    local bg_bright = 0
+    if track.state == 2 then bg_bright = rec_pulse      
+    elseif track.state == 4 then bg_bright = dub_pulse  
+    end
+    
+    -- 2. Loop Points (Level 5)
     local s = math.floor((track.loop_start or 0) * 15) + 1
     local e = math.floor((track.loop_end or 1) * 15) + 1
-    g:led(s, t, 4); g:led(e, t, 4)
-    if track.state ~= 1 and track.state ~= 5 and (track.rec_len or 0) > 0.1 then
-      local visual_pos = math.floor((track.play_pos or 0) * 15) + 1
-      visual_pos = util.clamp(visual_pos, 1, 16)
-      g:led(visual_pos, t, 15)
-    elseif track.state == 5 then
-       local visual_pos = math.floor((track.play_pos or 0) * 15) + 1
-       g:led(visual_pos, t, 2) 
-    elseif track.state == 1 then g:led(1, t, 2) end
+
+    -- 3. Playhead (Fat Dot 3px - Power 2.3)
+    local has_audio = (track.state ~= 1 and track.state ~= 5 and (track.rec_len or 0) > 0.1)
+    local is_paused = (track.state == 5)
+    
+    local head_pos = (track.play_pos or 0) * 15 + 1
+    local head_max_b = 0
+    if has_audio then head_max_b = 15 
+    elseif is_paused then head_max_b = 3 
+    elseif track.state == 1 then head_pos = 1; head_max_b = 2 end
+
+    for x=1, 16 do
+       local b = bg_bright 
+       if x == s or x == e then b = math.max(b, 5) end
+       
+       if head_max_b > 0 then
+          local dist = math.abs(x - head_pos)
+          if dist > 8 then dist = 16 - dist end 
+          if dist < 1.5 then
+             local intensity = (1.0 - (dist / 1.5)) ^ 2.3
+             local pixel_b = math.floor(head_max_b * intensity)
+             b = math.max(b, pixel_b)
+          end
+       end
+       g:led(x, t, b)
+    end
   end
-  for i=1,4 do g:led(i, 5, (state.track_sel == i) and 15 or 3) end
+
+  -- Row 5: Track Selector & Speed Ribbon
+  for i=1,4 do 
+     local b = 3
+     if state.track_sel == i then b = sel_pulse end 
+     g:led(i, 5, b) 
+  end
+  
   local t = state.tracks[state.track_sel]; local s = t.speed or 1
   for i=1, 11 do
      local val = VS_VALS[i]; local x = i + 5; local b = 2
@@ -56,6 +99,8 @@ local function draw_tape_view(state)
      elseif val == 0 and math.abs(s) < 0.01 then b = 15 end
      g:led(x, 5, b)
   end
+  
+  -- Row 6: Brake Intensity
   for i=1, 16 do
      local track_idx = math.floor((i-1)/4) + 1; local intensity_idx = (i-1)%4; local brightness = 2 + (intensity_idx * 3) 
      if state.tracks[track_idx].brake_amt and state.tracks[track_idx].brake_amt > 0 then
@@ -141,14 +186,18 @@ function Grid.redraw(state)
   -- FX (9-12)
   for i=9, 12 do 
      local active = false
-     if i==9 and state.fx_memory["kill"] then active = true
-     elseif i==10 and state.fx_memory["freeze"] then active = true
-     elseif i==11 and state.fx_memory["warble"] then active = true
-     elseif i==12 and state.fx_memory["brake"] then active = true end
-     local b = 1 
-     if active then b = 15 
-     elseif i == 12 then b = 3 
-     elseif i == 11 then b = math.floor(math.sin(now * 3) * 2 + 3) end 
+     local b = 1
+     if i==9 and state.fx_memory["kill"] then active = true; b = 15
+     elseif i==10 then 
+        if state.fx_memory["freeze"] then b = state.freeze_btn_level or 2; if b < 2 then b = 2 end; active = (b > 2)
+        else b = 2 end
+     elseif i==11 and state.fx_memory["warble"] then active = true; b = 15
+     elseif i==12 and state.fx_memory["brake"] then active = true; b = 15 end
+     
+     if not active and i ~= 10 then 
+        if i == 12 then b = 3 
+        elseif i == 11 then b = math.floor(math.sin(now * 3) * 2 + 3) end 
+     end
      g:led(i, 7, b)
   end 
   
@@ -172,8 +221,16 @@ function Grid.redraw(state)
   -- Pages 1-10 (Buttons 7-16)
   for i=1, 10 do 
      local x = i + 6 
-     local b = (state.current_page == i) and 15 or 2
-     if state.grid_shift_active and state.current_page == i then b = 10 end
+     local is_sel = (state.current_page == i)
+     local b = is_sel and 15 or 2
+     if i == 8 then if is_sel then b = 13 else b = 1 end end
+     if i == 10 then 
+        local current_amp = math.max(state.amp_l or 0, state.amp_r or 0)
+        local db = 20 * math.log10(current_amp > 0.0001 and current_amp or 0.0001)
+        if is_sel then local vu = util.linlin(-40, 0, 12, 15, db); b = math.floor(util.clamp(vu, 12, 15))
+        else local vu = util.linlin(-40, 0, 2, 12, db); b = math.floor(util.clamp(vu, 2, 12)) end
+     end
+     if state.grid_shift_active and is_sel then b = 10 end
      g:led(x, 8, b) 
   end
   
@@ -189,11 +246,8 @@ local function record_event(state, x, y, z, is_tape_context)
     if (slots[i].state == 1 or slots[i].state == 4) and not is_seq_btn and not is_page_nav then 
        local now = util.time()
        local dt = 0
-       if slots[i].state == 1 then 
-          dt = now - (slots[i].start_time or now)
-       else 
-          dt = (now - (slots[i].start_time or now)) % (slots[i].duration or 1) 
-       end
+       if slots[i].state == 1 then dt = now - (slots[i].start_time or now)
+       else dt = (now - (slots[i].start_time or now)) % (slots[i].duration or 1) end
        table.insert(slots[i].data, {dt=dt, x=x, y=y, z=z, p=is_tape_context and 7 or 1, tid=state.track_sel})
        table.sort(slots[i].data, function(a,b) return a.dt < b.dt end)
     end
@@ -257,8 +311,81 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
      return
   end
   
-  -- (Rest of Grid.key logic remains unchanged)
+  -- === ROW 7: PERFORMANCE ===
   if y == 7 then
+     
+     -- 1. SHIFT SHORTCUTS (Clear)
+     if state.grid_shift_active and z == 1 then
+        if x <= 4 then -- Clear Seq
+           local r = rec_slots[x]
+           r.state = 0; r.data = {}; r.step = 1; r.duration = 0
+           return
+        end
+        if x >= 5 and x <= 8 then -- Clear Preset
+           local slot = x - 4
+           presets_status[slot] = 0
+           presets_data[slot] = {}
+           if is_tape_view then state.tape_preset_selected = 0 else state.main_preset_selected = 0 end
+           return
+        end
+        if x >= 13 and x <= 16 then -- Clear Tape
+           Loopers.clear(x - 12, state)
+           return
+        end
+     end
+     
+     -- 2. FX LOGIC (9-12)
+     if x >= 9 and x <= 12 then 
+        local fx_type = ""; if x == 9 then fx_type = "kill" elseif x == 10 then fx_type = "freeze" elseif x == 11 then fx_type = "warble" elseif x == 12 then fx_type = "brake" end
+        if z == 1 then
+           if fx_type == "kill" then state.fx_memory["kill"] = params:get("pre_lpf"); params:set("pre_lpf", 150)
+           elseif fx_type == "freeze" then 
+              if state.freeze_clock then clock.cancel(state.freeze_clock) end
+              if not state.fx_memory["freeze"] then
+                 state.fx_memory["freeze"] = {rev_time=params:get("reverb_time"), fb=params:get("tape_fb")}
+              end
+              params:set("tape_fb", 1.0) 
+              state.freeze_btn_level = 15 
+              state.freeze_clock = clock.run(function()
+                 local start_val = params:get("reverb_time")
+                 local target_val = 60.0; local steps = 10 
+                 for i=1, steps do
+                    local val = start_val + ((target_val - start_val) * (i/steps))
+                    params:set("reverb_time", val); clock.sleep(0.02)
+                 end
+              end)
+           elseif fx_type == "warble" then 
+              state.fx_memory["warble"] = {w=params:get("tape_wow"), f=params:get("tape_flutter")}
+              params:set("tape_wow", 1.0); params:set("tape_flutter", 1.0)
+           elseif fx_type == "brake" then 
+              state.fx_memory["brake"] = true
+              for i=1,4 do state.tracks[i].brake_amt = 1.0 end; Loopers.refresh(1, state); Loopers.refresh(2, state); Loopers.refresh(3, state); Loopers.refresh(4, state) 
+           end
+        elseif z == 0 then
+           if fx_type == "kill" and state.fx_memory["kill"] then params:set("pre_lpf", state.fx_memory["kill"]); state.fx_memory["kill"] = nil
+           elseif fx_type == "freeze" and state.fx_memory["freeze"] then 
+              if state.freeze_clock then clock.cancel(state.freeze_clock) end
+              params:set("tape_fb", state.fx_memory["freeze"].fb)
+              state.freeze_clock = clock.run(function()
+                 local start_val = params:get("reverb_time"); local target_val = state.fx_memory["freeze"].rev_time; local steps = 150 
+                 for i=1, steps do
+                    local val = start_val + ((target_val - start_val) * (i/steps))
+                    params:set("reverb_time", val)
+                    state.freeze_btn_level = math.floor(util.linlin(1, steps, 15, 2, i))
+                    clock.sleep(0.02)
+                 end
+                 state.fx_memory["freeze"] = nil; state.freeze_btn_level = 2 
+              end)
+           elseif fx_type == "warble" and state.fx_memory["warble"] then 
+              params:set("tape_wow", state.fx_memory["warble"].w); params:set("tape_flutter", state.fx_memory["warble"].f); state.fx_memory["warble"] = nil
+           elseif fx_type == "brake" then 
+              for i=1,4 do state.tracks[i].brake_amt = 0.0 end; Loopers.refresh(1, state); Loopers.refresh(2, state); Loopers.refresh(3, state); Loopers.refresh(4, state); state.fx_memory["brake"] = nil
+           end
+        end
+        return
+     end
+     
+     -- 3. SEQUENCERS (1-4)
      if x <= 4 then 
         local slot = x; local r = rec_slots[slot]
         if z==1 then r.press_time = util.time()
@@ -286,6 +413,8 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         end
         return
      end
+
+     -- 4. PRESETS (5-8)
      if x >= 5 and x <= 8 then 
         local slot = x - 4
         if z == 1 then
@@ -389,69 +518,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         return
      end
      
-     if x >= 9 and x <= 12 then 
-        local fx_type = ""; if x == 9 then fx_type = "kill" elseif x == 10 then fx_type = "freeze" elseif x == 11 then fx_type = "warble" elseif x == 12 then fx_type = "brake" end
-        if z == 1 then
-           if fx_type == "kill" then state.fx_memory["kill"] = params:get("pre_lpf"); params:set("pre_lpf", 150)
-           
-           -- [UPDATE v500.17] Freeze Logic Fix (Memory Protection)
-           elseif fx_type == "freeze" then 
-              if state.freeze_clock then clock.cancel(state.freeze_clock) end
-              
-              -- Only save if not already in freeze state
-              if not state.fx_memory["freeze"] then
-                 state.fx_memory["freeze"] = {rev_time=params:get("reverb_time"), fb=params:get("tape_fb")}
-              end
-              
-              params:set("tape_fb", 1.0) 
-              
-              state.freeze_clock = clock.run(function()
-                 local start_val = params:get("reverb_time")
-                 local target_val = 60.0 
-                 local steps = 10 
-                 for i=1, steps do
-                    local val = start_val + ((target_val - start_val) * (i/steps))
-                    params:set("reverb_time", val)
-                    clock.sleep(0.02)
-                 end
-              end)
-              
-           elseif fx_type == "warble" then 
-              state.fx_memory["warble"] = {w=params:get("tape_wow"), f=params:get("tape_flutter")}
-              params:set("tape_wow", 1.0); params:set("tape_flutter", 1.0)
-           elseif fx_type == "brake" then 
-              state.fx_memory["brake"] = true
-              for i=1,4 do state.tracks[i].brake_amt = 1.0 end; Loopers.refresh(1, state); Loopers.refresh(2, state); Loopers.refresh(3, state); Loopers.refresh(4, state) 
-           end
-        elseif z == 0 then
-           if fx_type == "kill" and state.fx_memory["kill"] then params:set("pre_lpf", state.fx_memory["kill"]); state.fx_memory["kill"] = nil
-           
-           -- [UPDATE v500.17] Freeze Release (Clear memory only at end)
-           elseif fx_type == "freeze" and state.fx_memory["freeze"] then 
-              if state.freeze_clock then clock.cancel(state.freeze_clock) end
-              params:set("tape_fb", state.fx_memory["freeze"].fb)
-              
-              state.freeze_clock = clock.run(function()
-                 local start_val = params:get("reverb_time")
-                 local target_val = state.fx_memory["freeze"].rev_time
-                 local steps = 150 
-                 for i=1, steps do
-                    local val = start_val + ((target_val - start_val) * (i/steps))
-                    params:set("reverb_time", val)
-                    clock.sleep(0.02)
-                 end
-                 -- Clear memory ONLY after ramp down is complete
-                 state.fx_memory["freeze"] = nil
-              end)
-              
-           elseif fx_type == "warble" and state.fx_memory["warble"] then 
-              params:set("tape_wow", state.fx_memory["warble"].w); params:set("tape_flutter", state.fx_memory["warble"].f); state.fx_memory["warble"] = nil
-           elseif fx_type == "brake" then 
-              for i=1,4 do state.tracks[i].brake_amt = 0.0 end; Loopers.refresh(1, state); Loopers.refresh(2, state); Loopers.refresh(3, state); Loopers.refresh(4, state); state.fx_memory["brake"] = nil
-           end
-        end
-        return
-     end
+     -- 5. TRANSPORT (13-16)
      if x >= 13 and x <= 16 then 
         local trk = x - 12
         if z == 1 then
