@@ -1,5 +1,5 @@
-// Engine_Avant_lab_V.sc | Version 600.5
-// yUPDATE: All-BPF Topology (Serge Style), Frequency-Based Physics Gain, Unified Resonance
+// Engine_Avant_lab_V.sc | Version 600.14
+// yUPDATE: Dynamic Punch-Out (25ms for Rec / 300ms for Dub), Fast Attack (5ms), Buffer Clear
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -179,7 +179,7 @@ Engine_Avant_lab_V : CroneEngine {
             
             noise = Select.ar(noise_type, [PinkNoise.ar, WhiteNoise.ar, BrownNoise.ar]) * noise_amp * 0.05;
             
-            // Dirt (Original)
+            // Dirt (Original) [UPDATE v600.8: Gain Staging * 0.5]
             hiss_vol = (system_dirt.pow(0.75)) * 0.03;
             hum_vol = (system_dirt.pow(3)) * 0.015;
             dust_dens = LinLin.kr(system_dirt, 0.11, 1.0, 0.05, 11);
@@ -187,9 +187,12 @@ Engine_Avant_lab_V : CroneEngine {
             
             dust_sig = Decay2.ar(Dust.ar(dust_dens), 0.001, 0.01) * PinkNoise.ar(1);
             dust_sig = dust_sig * dust_vol * (system_dirt > 0.11);
-            dirt_sig = (PinkNoise.ar(hiss_vol) + SinOsc.ar(50, 0, hum_vol) + dust_sig).dup;
+            dirt_sig = (PinkNoise.ar(hiss_vol) + SinOsc.ar(50, 0, hum_vol) + dust_sig).dup * 0.5;
             
+            // [UPDATE v600.9] Vintage Input Filtering (35Hz - 18kHz)
             input = In.ar(in_bus, 2) * input_amp;
+            input = HPF.ar(input, 35);
+            input = LPF.ar(input, 18000);
             
             trig_int_sig = Impulse.ar(ping_rate * (1 + (LFNoise2.kr(ping_rate) * ping_jitter * 1.5)).clip(0.1, 40)) * ping_active;
             trig_seq_sig = Trig1.ar(K2A.ar(t_seq), SampleDur.ir);
@@ -278,21 +281,16 @@ Engine_Avant_lab_V : CroneEngine {
                     // --- CORRECCIÓN CLÍNICA DE GANANCIA (DEPENDIENTE DE FRECUENCIA) ---
                     // Ya no depende de 'i'. Depende puramente de la física de 'f'.
                     // Fórmula Unificada: (600 / f)^0.28 con clip de seguridad.
-                    // Boost en graves, soporte en medios-bajos, suelo en agudos.
                     
                     input_gain = (600 / f).pow(0.28).clip(1.0, 3.0);
                     
                     drive_sig = chan_sig * input_gain;
                     
                     // --- TOPOLOGÍA: TODOS BPF ---
-                    // Esto soluciona la saturación de extremos y permite mapeo libre de frecuencias.
-                    // El multiplicador (2.0 + ...) es el Makeup Gain por resonancia.
-                    
                     band = BPF.ar(drive_sig, f, rq) * (2.0 + (mod_q * 0.05)); 
                     
                     // --- Estabilizador (Limitador por Banda) ---
                     band_amp = Amplitude.kr(band, 0.01, 0.3); 
-                    // Umbral ajustado a 0.25 para permitir "cantar" sin distorsión digital dura
                     gain_red = 1.0 - ((band_amp - 0.25).max(0) * stabilizer * 2.0).tanh; 
                     band = band * gain_red;
 
@@ -345,7 +343,9 @@ Engine_Avant_lab_V : CroneEngine {
                 var target_buf;
                 var brake_mod, lfo_mod, brake_idx, lfo_lag_time; 
                 var start_pos, end_pos;
-                var fade_len, dist_start, dist_end, fade_in, fade_out, xfade_gain;
+                var fade_len_user, fade_len_micro, dist_start, dist_end;
+                var fade_in_user, fade_out_user, gain_out_user;
+                var fade_in_micro, fade_out_micro, gain_micro;
                 var loop_ero, loop_dust_trig, loop_dropout_env, loop_gain_loss;
                 var corrosion_am, flutter_delay, deg_curve;
                 var c_lpf, c_hpf, f_lpf, f_hpf;
@@ -354,10 +354,27 @@ Engine_Avant_lab_V : CroneEngine {
                 var organic_brake_hpf, flux_gain;
                 var input_fade_in, input_fade_out, input_win_gain;
                 var sig_out, sig_dub; 
+                var loop_len, rec_mix; 
+                var dub_memory, fade_out_time; // [v600.14] Dynamic Release Variables
                 
                 b_idx = synth_buffers[i];
                 bus_idx = track_buses[i];
-                gate_rec = Lag.kr(l_rec[i], 0.01); 
+                
+                // [UPDATE v600.14] DYNAMIC PUNCH-OUT LOGIC
+                // 1. Detect if we were dubbing (l_dub > 0). LagUD gives it "memory"
+                //    so if l_dub drops to 0 at the same time as l_rec, we still know we were dubbing.
+                dub_memory = LagUD.kr(l_dub[i], 0, 0.5);
+                
+                // 2. Select Release Time: 
+                //    - If Dub Memory > 0.01 (Was Dubbing) -> 0.3s (Slow/Creamy)
+                //    - If Dub Memory < 0.01 (Was Recording) -> 0.025s (Fast/Rhythmic)
+                fade_out_time = Select.kr(dub_memory > 0.01, [0.025, 0.3]);
+                
+                // 3. Apply LagUD to Gate Rec
+                //    - Attack: 0.005s (Fast Entry)
+                //    - Release: Dynamic (fade_out_time)
+                gate_rec = LagUD.kr(l_rec[i], 0.005, fade_out_time); 
+                
                 gate_play = Lag.kr(l_play[i], 0.01); 
                 trk_vol = l_vol[i];
                 trk_spd = l_speed[i]; trk_start = l_start[i]; trk_end = l_end[i];
@@ -368,7 +385,10 @@ Engine_Avant_lab_V : CroneEngine {
                 trk_low = l_low[i]; trk_high = l_high[i]; trk_filter = l_filter[i];
                 trk_pan = l_pan[i]; trk_width = l_width[i];
                 seek_t = l_seek_t[i]; seek_p = l_seek_p[i];
-                target_buf = Select.kr(gate_rec > 0.1, [dummy_buf, b_idx]);
+                
+                // [UPDATE v600.10] Write Extension: Keep writing until gate is truly closed
+                target_buf = Select.kr(gate_rec > 0.0001, [dummy_buf, b_idx]);
+                
                 in = Select.ar(trk_src, [tap_clean, tap_post_tape, tap_post_filter, tap_post_reverb, trk1_in, trk2_in, trk3_in, trk4_in]);
                 brake_idx = (trk_brake * 4).round;
                 brake_mod = Select.kr(brake_idx, [1.0, 1.0, 1.0, 0.5, 0.0]);
@@ -380,18 +400,37 @@ Engine_Avant_lab_V : CroneEngine {
                 organic_brake_hpf = LinExp.kr(rate_slew.abs + 0.001, 0.001, 1.0, 250, 10);
                 organic_brake_hpf = Lag.kr(organic_brake_hpf, 0.1);
                 flux_gain = (rate_slew.abs * 5.0).clip(0, 1).pow(3);
+                
                 start_pos = trk_start * BufFrames.kr(b_idx);
                 end_pos = trk_end * BufFrames.kr(b_idx);
+                
+                loop_len = (end_pos - start_pos).abs;
+                
+                // 1. User Artistic Fade (Output Only)
+                fade_len_user = (trk_xfade * SampleRate.ir).min(loop_len * 0.5).max(100);
+                
+                // 2. Micro-Fade (Recording/Feedback Only) - Fixed 10ms
+                fade_len_micro = (0.01 * SampleRate.ir).min(loop_len * 0.5).max(4);
+
                 ptr = Phasor.ar(seek_t, rate_slew * BufRateScale.kr(b_idx), start_pos, end_pos, seek_p * BufFrames.kr(b_idx));
                 Out.kr(pos_bus_base + i, ptr / BufFrames.kr(b_idx));
-                fade_len = trk_xfade * SampleRate.ir;
+                
                 dist_start = (ptr - start_pos).abs; dist_end = (end_pos - ptr).abs;
-                fade_in = (dist_start / fade_len).clip(0, 1); fade_out = (dist_end / fade_len).clip(0, 1);
-                xfade_gain = (fade_in.min(fade_out) * 0.5 * pi).sin;
-                input_fade_in = (dist_start / (0.005 * SampleRate.ir)).clip(0, 1);
-                input_fade_out = (dist_end / (0.005 * SampleRate.ir)).clip(0, 1);
-                input_win_gain = input_fade_in.min(input_fade_out);
-                play_sig = BufRd.ar(2, b_idx, ptr, 1, 4);
+                
+                // --- PATH A: USER OUTPUT (ASYMMETRIC SOFT ENTRY) ---
+                // [UPDATE v600.10] .pow(1.5) on Fade-In creates a softer attack curve
+                fade_in_user = (dist_start / fade_len_user).clip(0, 1).pow(1.5); 
+                fade_out_user = (dist_end / fade_len_user).clip(0, 1);
+                gain_out_user = (fade_in_user.min(fade_out_user) * 0.5 * pi).sin;
+                
+                // --- PATH B: INTERNAL FEEDBACK (CONSTANT POWER SQRT) ---
+                fade_in_micro = (dist_start / fade_len_micro).clip(0, 1);
+                fade_out_micro = (dist_end / fade_len_micro).clip(0, 1);
+                gain_micro = fade_in_micro.min(fade_out_micro).pow(0.5);
+                
+                // [UPDATE v600.10] Linear Interpolation (2) prevents Gibbs Ringing at loop points
+                play_sig = BufRd.ar(2, b_idx, ptr, 1, 2);
+                
                 deg_curve = trk_deg.pow(3.0); 
                 corrosion_am = 1.0 - (LFNoise2.kr(8 + (i*2)).unipolar * deg_curve * 0.6);
                 play_sig = play_sig * corrosion_am;
@@ -408,12 +447,19 @@ Engine_Avant_lab_V : CroneEngine {
                 dynamic_cutoff = (rate_slew.abs * 20000).clip(10, 20000);
                 play_sig = LPF.ar(LPF.ar(play_sig, dynamic_cutoff), dynamic_cutoff);
                 
-                sig_out = play_sig * xfade_gain; 
-                sig_dub = play_sig; 
+                sig_out = play_sig * gain_out_user; 
+                sig_dub = play_sig * gain_micro;    
                 
-                rec_sig = (HPF.ar(in, 10.0) * input_win_gain * trk_rec_amp) + (sig_dub * trk_dub);
+                // [UPDATE v600.12] Removed internal HPF(10.0) to prevent ringing/ghost notes
+                rec_sig = (in * gain_micro * trk_rec_amp) + (sig_dub * trk_dub);
                 
-                BufWr.ar(rec_sig.tanh, target_buf, ptr);
+                // [UPDATE v600.12] LINEAR INTERPOLATION PUNCH-OUT
+                // Replaces XFade2 (Constant Power) to avoid +3dB bump on correlated signals
+                // Manual Linear Mix: (A * (1-mix)) + (B * mix)
+                rec_mix = (play_sig * (1.0 - gate_rec)) + (rec_sig * gate_rec);
+                
+                // [UPDATE v600.9] LeakDC to prevent DC Offset accumulation in feedback
+                BufWr.ar(LeakDC.ar(rec_mix).tanh, target_buf, ptr);
                 
                 output_sig = sig_out * gate_play; 
                 output_sig = HPF.ar(output_sig, organic_brake_hpf);
@@ -570,6 +616,9 @@ Engine_Avant_lab_V : CroneEngine {
         this.addCommand("bass_focus", "i", { |msg| synth.set(\bass_focus_mode, msg[1]); });
         this.addCommand("limiter_ceil", "f", { |msg| synth.set(\limiter_ceil, msg[1]); });
         this.addCommand("balance", "f", { |msg| synth.set(\balance, msg[1]); });
+        
+        // [UPDATE v600.13] Added "clear" command for physical buffer erasure
+        this.addCommand("clear", "i", { |msg| buffers[msg[1]-1].zero; });
     }
 
     free {
