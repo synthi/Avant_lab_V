@@ -1,5 +1,5 @@
--- Avant_lab_V.lua | Version 500.16
--- UPDATE: Bass Focus to Option, Params Group Fix
+-- Avant_lab_V.lua | Version 600.1
+-- UPDATE: Menu Cleaned (Removed extra separators), Input Group Order Kept
 
 engine.name = 'Avant_lab_V'
 
@@ -309,13 +309,10 @@ function init()
   
   params:add_separator("AVANT_LAB_V")
   
-  -- 1. GLOBAL & MIX (Count: 14)
-  params:add_group("GLOBAL / MIX", 14) 
+  -- 1. GLOBAL (Count: 11)
+  params:add_group("GLOBAL", 11) 
   params:add{type = "control", id = "feedback", name = "Feedback", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) engine.feedback(x) end}
   params:add{type = "control", id = "global_q", name = "Global Q", controlspec = controlspec.new(0.5, 80.0, 'exp', 0, 1.0), action = function(x) engine.global_q(x) end}
-  params:add{type = "control", id = "reverb_mix", name = "Reverb Mix", controlspec = controlspec.new(0, 1, 'lin', 0.001, 1.0), action = function(x) engine.reverb_mix(x) end}
-  params:add{type = "control", id = "reverb_time", name = "Reverb Decay", controlspec = controlspec.new(0.1, 60.0, 'exp', 0.1, 1.5, "s"), action = function(x) engine.reverb_time(x) end}
-  params:add{type = "control", id = "reverb_damp", name = "Reverb Damp", controlspec = controlspec.new(100, 20000, 'exp', 10, 10000, "Hz"), action = function(x) engine.reverb_damp(x) end}
   params:add{type = "control", id = "system_dirt", name = "System Dirt", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.0), action = function(x) engine.system_dirt(x) end}
   
   params:add{
@@ -344,23 +341,31 @@ function init()
   params:add{type = "option", id = "load_behavior_reels", name = "Load: Reels", options = {"Stop", "Play"}, default = 1}
   params:add{type = "option", id = "load_behavior_seqs", name = "Load: Seqs", options = {"Stop", "Play"}, default = 2}
   
-  -- 2. MASTER PROCESS (Count: 6)
-  params:add_group("MASTER PROCESS", 6)
-  params:add{type = "control", id = "comp_thresh", name = "Comp Thresh", controlspec = controlspec.new(-60.0, 0.0, 'lin', 0.1, -12.0, "dB"), action = function(x) engine.comp_thresh(x) end}
-  params:add{type = "control", id = "comp_ratio", name = "Comp Ratio", controlspec = controlspec.new(1.0, 20.0, 'lin', 0.1, 2.0), action = function(x) engine.comp_ratio(x) end}
-  params:add{type = "control", id = "comp_drive", name = "Comp Drive", controlspec = controlspec.new(0.0, 24.0, 'lin', 0.1, 0.0, "dB"), action = function(x) engine.comp_drive(x) end}
-  -- [UPDATE v500.16] Bass Focus as Option (OFF, 50, 100, 200)
-  params:add{type = "option", id = "bass_focus", name = "Bass Focus", options = {"OFF", "50Hz", "100Hz", "200Hz"}, default = 1, action = function(x) engine.bass_focus(x-1) end}
-  params:add{type = "control", id = "limiter_ceil", name = "Limiter Ceil", controlspec = controlspec.new(-6.0, 0.0, 'lin', 0.1, 0.0, "dB"), action = function(x) engine.limiter_ceil(x) end}
-  params:add{type = "control", id = "balance", name = "Master Balance", controlspec = controlspec.new(-1.0, 1.0, 'lin', 0.01, 0.0), action = function(x) engine.balance(x) end}
-
-  -- 3. INPUT (Count: 3)
+  -- 2. INPUT (Count: 3)
   params:add_group("INPUT", 3)
   params:add{type = "control", id = "input_amp", name = "Input Level", controlspec = controlspec.new(0, 2, 'lin', 0.001, 1.0), action = function(x) engine.input_amp(x) end}
   params:add{type = "control", id = "noise_amp", name = "Noise Level", controlspec = controlspec.new(0, 2, 'lin', 0.001, 0.0), action = function(x) engine.noise_amp(x) end}
   params:add{type = "option", id = "noise_type", name = "Noise Type", options = {"Pink", "White", "Brown"}, action = function(x) engine.noise_type(x-1) end}
 
-  -- 4. PING (Count: 10)
+  -- 3. REVERB (Count: 3)
+  params:add_group("REVERB", 3)
+  params:add{type = "control", id = "reverb_mix", name = "Reverb Mix", controlspec = controlspec.new(0, 1, 'lin', 0.001, 1.0), action = function(x) engine.reverb_mix(x) end}
+  params:add{type = "control", id = "reverb_time", name = "Reverb Decay", controlspec = controlspec.new(0.1, 60.0, 'exp', 0.1, 1.5, "s"), action = function(x) engine.reverb_time(x) end}
+  params:add{type = "control", id = "reverb_damp", name = "Reverb Damp", controlspec = controlspec.new(100, 20000, 'exp', 10, 10000, "Hz"), action = function(x) engine.reverb_damp(x) end}
+  
+  -- 4. MASTER PROCESS (Count: 6)
+  params:add_group("MASTER PROCESS", 6)
+  params:add{type = "control", id = "comp_thresh", name = "Comp Thresh", controlspec = controlspec.new(-60.0, 0.0, 'lin', 0.1, -12.0, "dB"), action = function(x) engine.comp_thresh(x) end}
+  params:add{type = "control", id = "comp_ratio", name = "Comp Ratio", controlspec = controlspec.new(1.0, 20.0, 'lin', 0.1, 2.0), action = function(x) engine.comp_ratio(x) end}
+  params:add{type = "control", id = "comp_drive", name = "Comp Drive", controlspec = controlspec.new(0.0, 24.0, 'lin', 0.1, 0.0, "dB"), action = function(x) engine.comp_drive(x) end}
+  params:add{type = "option", id = "bass_focus", name = "Bass Focus", options = {"OFF", "50Hz", "100Hz", "200Hz"}, default = 1, action = function(x) engine.bass_focus(x-1) end}
+  params:add{type = "control", id = "limiter_ceil", name = "Limiter Ceil", controlspec = controlspec.new(-6.0, 0.0, 'lin', 0.1, 0.0, "dB"), action = function(x) engine.limiter_ceil(x) end}
+  params:add{type = "control", id = "balance", name = "Master Balance", controlspec = controlspec.new(-1.0, 1.0, 'lin', 0.01, 0.0), action = function(x) engine.balance(x) end}
+
+  -- [FIREWALL]
+  params:add_separator() 
+  
+  -- 5. PING (Count: 10)
   params:add_group("PING GENERATOR", 10)
   params:add{type = "option", id = "ping_active", name = "Generator", options = {"Off", "On"}, default = 1, action = function(x) engine.ping_active(x-1) end}
   params:add{type = "option", id = "ping_mode", name = "Ping Mode", options = {"Internal (Free)", "Euclidean (Sync)"}, default = 1, action = function(x) engine.ping_mode(x-1) end}
@@ -373,7 +378,8 @@ function init()
   params:add{type = "number", id = "ping_hits", name = "Euc Hits", min = 0, max = 32, default = 4, action = function(x) update_ping_pattern() end}
   params:add{type = "trigger", id = "ping_manual", name = "Manual Trigger", action = function() engine.ping_manual(1) end}
 
-  -- 5. RING MOD (Count: 5)
+  -- ... (Resto de grupos sin cambios) ...
+  -- 6. RING MOD (Count: 5)
   params:add_group("RING MODULATOR", 5)
   params:add{type = "control", id = "rm_drive", name = "RM Drive", controlspec = controlspec.new(0, 24.0, 'lin', 0.1, 6.0, "dB"), action = function(x) engine.rm_drive(x) end}
   params:add{type = "control", id = "rm_freq", name = "Carrier Freq", controlspec = controlspec.new(0.1, 4000.0, 'exp', 0.1, 100.0, "Hz"), action = function(x) engine.rm_freq(x) end}
@@ -381,7 +387,7 @@ function init()
   params:add{type = "control", id = "rm_mix", name = "Dry/Wet Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) engine.rm_mix(x) end}
   params:add{type = "control", id = "rm_instability", name = "Instability", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) engine.rm_instability(x) end}
 
-  -- 6. FILTER BANK (Count: 7)
+  -- 7. FILTER BANK (Count: 7)
   params:add_group("FILTER BANK", 7)
   params:add{type = "control", id = "filter_mix", name = "Filter Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 1.0), action = function(x) engine.filter_mix(x) end}
   params:add{type = "control", id = "pre_hpf", name = "Low Cut (HPF)", controlspec = controlspec.new(20, 999, 'exp', 0, 20, "Hz"), action = function(x) engine.pre_hpf(x) end}
@@ -391,13 +397,13 @@ function init()
   params:add{type = "control", id = "spread", name = "Spread (Odd/Even)", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.75), action = function(x) engine.spread(x) end}
   params:add{type = "control", id = "filter_drift", name = "Filter Drift", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.0), action = function(x) engine.filter_drift(x) end}
 
-  -- 7. LFO (Count: 3)
+  -- 8. LFO (Count: 3)
   params:add_group("LFO MODULATION", 3)
   params:add{type = "control", id = "lfo_depth", name = "Global Intensity", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) engine.lfo_depth(x) end}
   params:add{type = "control", id = "lfo_rate", name = "Global Rate", controlspec = controlspec.new(0.01, 2.0, 'exp', 0.01, 0.1, "Hz"), action = function(x) engine.lfo_rate(x) end}
   params:add{type = "control", id = "lfo_min_db", name = "LFO Target DB", controlspec = controlspec.new(-90, 0, 'lin', 1, -60, "dB"), action = function(x) engine.lfo_min_db(x) end}
 
-  -- 8. MAIN TAPE ECHO (Count: 7)
+  -- 9. MAIN TAPE ECHO (Count: 7)
   params:add_group("MAIN TAPE ECHO", 7)
   params:add{type = "control", id = "tape_mix", name = "Tape Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 1.0), action = function(x) engine.tape_mix(x) end}
   params:add{type = "control", id = "tape_time", name = "Time", controlspec = controlspec.new(0, 4.0, 'lin', 0.01, 0.0, "s"), action = function(x) engine.tape_time(x) end}
@@ -407,14 +413,14 @@ function init()
   params:add{type = "control", id = "tape_flutter", name = "Flutter (Fast)", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.08), action = function(x) engine.tape_flutter(x) end}
   params:add{type = "control", id = "tape_erosion", name = "Erosion", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.18), action = function(x) engine.tape_erosion(x) end}
   
-  -- 9. TIME ENGINES (Count: 4)
+  -- 10. TIME ENGINES (Count: 4)
   params:add_group("TIME ENGINES", 4)
   params:add{type = "control", id = "seq_rate_main", name = "Grid Seq Rate (Main)", controlspec = controlspec.new(-2.0, 2.0, 'lin', 0.01, 0.0)}
   params:add{type = "control", id = "preset_morph_main", name = "Grid Morph (Main)", controlspec = controlspec.new(0.01, 60.0, 'exp', 0.01, 2.0, "s")}
   params:add{type = "control", id = "seq_rate_tape", name = "Grid Seq Rate (Tape)", controlspec = controlspec.new(-2.0, 2.0, 'lin', 0.01, 0.0)}
   params:add{type = "control", id = "preset_morph_tape", name = "Grid Morph (Tape)", controlspec = controlspec.new(0.01, 60.0, 'exp', 0.01, 2.0, "s")}
 
-  -- 10. TAPE LOOPERS (1-4)
+  -- 11. TAPE LOOPERS (1-4)
   for i=1, 4 do
     params:add_group("TAPE TRACK " .. i, 15)
     params:add{type = "control", id = "l"..i.."_speed", name = "Speed", controlspec = controlspec.new(-2.0, 2.0, 'lin', 0.01, 1.0), action = function(x) state.tracks[i].speed = x; Loopers.refresh(i, state) end}
@@ -443,7 +449,7 @@ function init()
     params:add{type = "control", id = "l"..i.."_width", name = "Mixer Width", controlspec = controlspec.new(0, 2, 'lin', 0.01, 1), action = function(x) state.tracks[i].l_width = x; Loopers.refresh(i, state) end}
   end
 
-  -- 11. BANDS
+  -- 12. BANDS
   params:add_group("BANDS SETUP", 34) 
   local scale_options = {"Default"}
   if Scales and Scales.names then scale_options = Scales.names end
@@ -485,7 +491,7 @@ function init()
   local p_l = poll.set("amp_l"); if p_l then p_l.time = 0.05; p_l.callback = function(v) state.amp_l = v end; p_l:start() end
   local p_r = poll.set("amp_r"); if p_r then p_r.time = 0.05; p_r.callback = function(v) state.amp_r = v end; p_r:start() end
   
-  -- [NEW v500.16] Gain Reduction Poll
+  -- [NEW v500.19] Gain Reduction Poll
   state.comp_gr = 0
   local p_gr = poll.set("comp_gr"); if p_gr then p_gr.time = 0.05; p_gr.callback = function(v) state.comp_gr = v end; p_gr:start() end
   
