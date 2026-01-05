@@ -1,15 +1,53 @@
--- Avant_lab_V lib/globals.lua | Version 109.0
--- FIX: Added visual_gain for Slew visualization
+-- Avant_lab_V lib/globals.lua | Version 1019
+-- UPDATE: Added grid_mixer_held for interaction
 
 local Globals = {}
 
 function Globals.new()
   local s = {}
   
-  s.amp_l = 0; s.amp_r = 0
-  s.band_levels = {}
-  for i=1, 16 do s.band_levels[i] = 0 end
+  -- [DEFENSIVE] Visual Data Defaults & Tables
+  s.loaded = false 
   
+  s.amp_l = 0.0
+  s.amp_r = 0.0
+  s.comp_gr = 0.0 
+  
+  -- Explicit declaration of ALL array tables
+  s.band_levels = {}
+  s.bands_gain = {}  
+  s.visual_gain = {} 
+  s.grid_memory = {}
+  s.grid_cache = {} 
+  
+  -- Populate arrays
+  for i=1, 16 do 
+     s.band_levels[i] = 0.0 
+     s.bands_gain[i] = -60  
+     s.visual_gain[i] = -60 
+     s.grid_memory[i] = -60 
+     
+     s.grid_cache[i] = {}
+     for y=1, 8 do s.grid_cache[i][y] = -1 end
+  end
+
+  -- Ring Buffers
+  s.GONIO_LEN = 50
+  s.FILTER_LEN = 40
+  
+  s.gonio_history = {} 
+  for i=1, s.GONIO_LEN do s.gonio_history[i] = {s=0, w=0} end
+  
+  s.filter_history = {}
+  for i=1, s.FILTER_LEN do s.filter_history[i] = {amp=0, phase=0} end
+  
+  s.time_history = {}
+  for i=1, s.FILTER_LEN do s.time_history[i] = {ph=0, r=0, m=0} end
+
+  s.heads = {gonio=1, filter=1, time=1}
+  s.str_cache = {}
+
+  -- Standard State
   s.current_page = 1
   s.k1_held = false       
   s.mod_shift_16 = false  
@@ -18,19 +56,13 @@ function Globals.new()
   s.time_page_focus = "MAIN"
   s.ping_btn_held = false
   
+  -- [NEW] Interaction state
+  s.grid_mixer_held = false
+  
   s.tape_library_sel = 1
   s.tape_filenames = {"[EMPTY]", "[EMPTY]", "[EMPTY]", "[EMPTY]"}
   s.tape_msg_timers = {0, 0, 0, 0}
   s.file_selector_active = false
-  
-  s.bands_gain = {}
-  s.visual_gain = {} -- [NEW] Visual interpolation buffer
-  s.grid_memory = {}
-  for i=1, 16 do 
-     s.bands_gain[i] = -60
-     s.visual_gain[i] = -60 
-     s.grid_memory[i] = -60 
-  end
   
   s.main_rec_slots = {}
   for i=1, 4 do s.main_rec_slots[i] = {data={}, state=0, press_time=0, start_time=0, step=1, duration=0} end
