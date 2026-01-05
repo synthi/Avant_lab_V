@@ -1,5 +1,5 @@
--- Avant_lab_V lib/grid.lua | Version 500.29
--- UPDATE: FIXED Grid.key Logic (Removed stray redraw code), Cleaned Row 7 Structure
+-- Avant_lab_V lib/grid.lua | Version 1019
+-- UPDATE: Grid Row 5 Interaction for Mixer Page sync
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -10,6 +10,22 @@ local levels_cache = {}
 for i=1, 16 do levels_cache[i] = {int=0, frac=0} end
 local SPEED_STEPS = {0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0}
 local VS_VALS = {-2.0, -1.5, -1.0, -0.5, -0.25, 0.0, 0.25, 0.5, 1.0, 1.5, 2.0}
+
+-- Mercury LUT
+local MERCURY_LUT = {}
+local LUT_STEPS = 150
+for i=0, LUT_STEPS do
+   local dist = (i / LUT_STEPS) * 1.5
+   local intensity = 0
+   if dist < 1.5 then
+      intensity = (1.0 - (dist / 1.5)) ^ 2.3
+   end
+   MERCURY_LUT[i] = intensity
+end
+
+-- Virtual Buffer
+local next_frame = {}
+for x=1, 16 do next_frame[x] = {}; for y=1, 8 do next_frame[x][y] = 0 end end
 
 function Grid.init(state, device)
   g = device
@@ -32,13 +48,15 @@ function Grid.init(state, device)
   state.page_press_time = 0
 end
 
+local function led_buf(x, y, val)
+   if x >=1 and x <=16 and y >=1 and y <=8 then
+      next_frame[x][y] = math.floor(val)
+   end
+end
+
 local function draw_tape_view(state)
   local now = util.time()
-  
-  -- Breathing Pulse for Track Selector (Row 5)
   local sel_pulse = math.floor(util.linlin(-1, 1, 13, 15, math.sin(now * 8)))
-
-  -- Living Tape Background Pulses (Rows 1-4) [0-2 Range]
   local rec_pulse = math.floor(util.linlin(-1, 1, 0, 2.9, math.sin(now * 8))) 
   local dub_pulse = math.floor(util.linlin(-1, 1, 0, 2.9, math.sin(now * 4))) 
   rec_pulse = util.clamp(rec_pulse, 0, 2)
@@ -46,18 +64,14 @@ local function draw_tape_view(state)
 
   for t=1, 4 do
     local track = state.tracks[t]
-    
-    -- 1. Determine Background Brightness
     local bg_bright = 0
     if track.state == 2 then bg_bright = rec_pulse      
     elseif track.state == 4 then bg_bright = dub_pulse  
     end
     
-    -- 2. Loop Points (Level 5)
     local s = math.floor((track.loop_start or 0) * 15) + 1
     local e = math.floor((track.loop_end or 1) * 15) + 1
 
-    -- 3. Playhead (Fat Dot 3px - Power 2.3)
     local has_audio = (track.state ~= 1 and track.state ~= 5 and (track.rec_len or 0) > 0.1)
     local is_paused = (track.state == 5)
     
@@ -74,21 +88,23 @@ local function draw_tape_view(state)
        if head_max_b > 0 then
           local dist = math.abs(x - head_pos)
           if dist > 8 then dist = 16 - dist end 
+          
           if dist < 1.5 then
-             local intensity = (1.0 - (dist / 1.5)) ^ 2.3
+             local lut_idx = math.floor(dist * 100)
+             lut_idx = util.clamp(lut_idx, 0, 150)
+             local intensity = MERCURY_LUT[lut_idx] or 0
              local pixel_b = math.floor(head_max_b * intensity)
              b = math.max(b, pixel_b)
           end
        end
-       g:led(x, t, b)
+       led_buf(x, t, b)
     end
   end
 
-  -- Row 5: Track Selector & Speed Ribbon
   for i=1,4 do 
      local b = 3
      if state.track_sel == i then b = sel_pulse end 
-     g:led(i, 5, b) 
+     led_buf(i, 5, b) 
   end
   
   local t = state.tracks[state.track_sel]; local s = t.speed or 1
@@ -97,17 +113,16 @@ local function draw_tape_view(state)
      if math.abs(s - val) < 0.01 then b = 15
      elseif (s > 0 and val > 0 and s >= val) or (s < 0 and val < 0 and s <= val) then b = 6
      elseif val == 0 and math.abs(s) < 0.01 then b = 15 end
-     g:led(x, 5, b)
+     led_buf(x, 5, b)
   end
   
-  -- Row 6: Brake Intensity
   for i=1, 16 do
      local track_idx = math.floor((i-1)/4) + 1; local intensity_idx = (i-1)%4; local brightness = 2 + (intensity_idx * 3) 
      if state.tracks[track_idx].brake_amt and state.tracks[track_idx].brake_amt > 0 then
         local active_intensity = math.floor(state.tracks[track_idx].brake_amt * 4) - 1
         if active_intensity == intensity_idx then brightness = 15 end
      end
-     g:led(i, 6, brightness)
+     led_buf(i, 6, brightness)
   end
 end
 
@@ -128,14 +143,16 @@ local function draw_main_view(state)
     for h=1, 6 do
        local y = 7 - h; local b_fad = (h <= fader_h) and 2 or 0; local b_sig = 0
        if h <= sig.int then b_sig = 15 elseif h == sig.int+1 then b_sig = math.floor(sig.frac * 15) end
-       g:led(i, y, math.max(b_fad, b_sig))
+       led_buf(i, y, math.max(b_fad, b_sig))
     end
   end
 end
 
 function Grid.redraw(state)
   if not g or not g.device then return end
-  g:all(0)
+  for x=1, 16 do for y=1, 8 do next_frame[x][y] = 0 end end
+  
+  if not state.loaded then return end
   
   local is_tape_view = (state.current_page == 7) or (state.current_page == 8) or (state.current_page == 5 and state.time_page_focus == "TAPE")
   if state.current_page == 9 and state.grid_tape_view_override then is_tape_view = true end
@@ -158,29 +175,29 @@ function Grid.redraw(state)
      morph_slot = state.morph_main_slot
   end
 
-  -- --- ROW 7: PERFORMANCE ---
+  -- ROW 7
   local now = util.time()
   local pulse_rec = math.floor(math.sin(now * 8) * 6 + 9) 
   local pulse_dub = math.floor(math.sin(now * 4) * 4 + 8) 
   local pulse_seq = math.floor(math.sin(now * 5) * 5 + 8) 
 
-  for i=1, 4 do -- Sequencers
+  for i=1, 4 do 
      local r = rec_slots[i]; local b = 1
      if r.state == 1 then b = pulse_seq 
      elseif r.state == 2 then b = 15 
      elseif r.state == 4 then b = pulse_dub 
      elseif r.state == 3 then b = 4 end
-     g:led(i, 7, b)
+     led_buf(i, 7, b)
   end
   
-  for i=1, 4 do -- Presets
+  for i=1, 4 do 
      local x = i + 4; local st = presets_status[i]; local b = 2 
      if st==1 then b=6 end
      if st == 1 then
         if preset_selected == i then b = 15 end
         if morph_active and morph_slot == i then b = 15 end
      end
-     g:led(x, 7, b)
+     led_buf(x, 7, b)
   end
   
   -- FX (9-12)
@@ -198,27 +215,26 @@ function Grid.redraw(state)
         if i == 12 then b = 3 
         elseif i == 11 then b = math.floor(math.sin(now * 3) * 2 + 3) end 
      end
-     g:led(i, 7, b)
+     led_buf(i, 7, b)
   end 
   
-  for i=1, 4 do -- Transport
+  for i=1, 4 do 
      local trk = state.tracks[i]; local x = i + 12; local b = 1 
      if trk.state == 1 then b = 1
      elseif trk.state == 2 then b = pulse_rec 
      elseif trk.state == 4 then b = pulse_dub 
      elseif trk.state == 3 then b = 8 
      elseif trk.state == 5 then b = 4 end
-     g:led(x, 7, b)
+     led_buf(x, 7, b)
   end
   
-  -- --- ROW 8: SYSTEM ---
-  g:led(1, 8, state.grid_momentary_mode and 15 or 4)
+  -- ROW 8
+  led_buf(1, 8, state.grid_momentary_mode and 15 or 4)
   if now - state.rnd_btn_timer > 0.8 then state.rnd_btn_val = math.random(1, 6); state.rnd_btn_timer = now end
-  g:led(2, 8, state.rnd_btn_val)
-  g:led(3, 8, state.fx_memory["swell"] and 15 or 4)
-  g:led(5, 8, state.ping_btn_held and 15 or 2)
+  led_buf(2, 8, state.rnd_btn_val)
+  led_buf(3, 8, state.fx_memory["swell"] and 15 or 4)
+  led_buf(5, 8, state.ping_btn_held and 15 or 2)
   
-  -- Pages 1-10 (Buttons 7-16)
   for i=1, 10 do 
      local x = i + 6 
      local is_sel = (state.current_page == i)
@@ -231,9 +247,19 @@ function Grid.redraw(state)
         else local vu = util.linlin(-40, 0, 2, 12, db); b = math.floor(util.clamp(vu, 2, 12)) end
      end
      if state.grid_shift_active and is_sel then b = 10 end
-     g:led(x, 8, b) 
+     led_buf(x, 8, b) 
   end
   
+  -- Differential Draw
+  for x=1, 16 do
+     for y=1, 8 do
+        local new_val = next_frame[x][y]
+        if state.grid_cache[x][y] ~= new_val then
+           g:led(x, y, new_val)
+           state.grid_cache[x][y] = new_val
+        end
+     end
+  end
   g:refresh()
 end
 
@@ -273,7 +299,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
 
   -- === ROW 8: SYSTEM (GLOBAL) ===
   if y == 8 then
-     if x >= 7 then -- Pages 1-10
+     if x >= 7 then 
         if z == 1 then 
            state.page_press_time = util.time()
            state.grid_shift_active = true
@@ -313,28 +339,25 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
   
   -- === ROW 7: PERFORMANCE ===
   if y == 7 then
-     
-     -- 1. SHIFT SHORTCUTS (Clear)
      if state.grid_shift_active and z == 1 then
-        if x <= 4 then -- Clear Seq
+        if x <= 4 then 
            local r = rec_slots[x]
            r.state = 0; r.data = {}; r.step = 1; r.duration = 0
            return
         end
-        if x >= 5 and x <= 8 then -- Clear Preset
+        if x >= 5 and x <= 8 then 
            local slot = x - 4
            presets_status[slot] = 0
            presets_data[slot] = {}
            if is_tape_view then state.tape_preset_selected = 0 else state.main_preset_selected = 0 end
            return
         end
-        if x >= 13 and x <= 16 then -- Clear Tape
+        if x >= 13 and x <= 16 then 
            Loopers.clear(x - 12, state)
            return
         end
      end
      
-     -- 2. FX LOGIC (9-12)
      if x >= 9 and x <= 12 then 
         local fx_type = ""; if x == 9 then fx_type = "kill" elseif x == 10 then fx_type = "freeze" elseif x == 11 then fx_type = "warble" elseif x == 12 then fx_type = "brake" end
         if z == 1 then
@@ -385,7 +408,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         return
      end
      
-     -- 3. SEQUENCERS (1-4)
      if x <= 4 then 
         local slot = x; local r = rec_slots[slot]
         if z==1 then r.press_time = util.time()
@@ -414,7 +436,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         return
      end
 
-     -- 4. PRESETS (5-8)
      if x >= 5 and x <= 8 then 
         local slot = x - 4
         if z == 1 then
@@ -518,7 +539,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         return
      end
      
-     -- 5. TRANSPORT (13-16)
      if x >= 13 and x <= 16 then 
         local trk = x - 12
         if z == 1 then
@@ -607,7 +627,17 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
      return
   end
   if is_tape_view and y == 5 then
-     if x <= 4 and z == 1 then state.track_sel = x end
+     if x <= 4 and z == 1 then 
+        state.track_sel = x
+        -- [NEW] Sync Mixer Page if active
+        if state.current_page == 9 then
+           state.mixer_sel = x
+           state.grid_mixer_held = true
+        end
+     elseif x <= 4 and z == 0 then
+        state.grid_mixer_held = false
+     end
+     
      if x >= 6 then
         local target = target_track or state.track_sel
         if z==1 then
