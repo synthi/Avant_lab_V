@@ -1,5 +1,5 @@
-// Engine_Avant_lab_V.sc | Version 600.14
-// yUPDATE: Dynamic Punch-Out (25ms for Rec / 300ms for Dub), Fast Attack (5ms), Buffer Clear
+// lib/Engine_Avant_lab_V.sc | Version 1013
+// UPDATE: Fixed Multichannel Expansion bug (690Hz -> 30Hz), .flat array, standard path
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -8,11 +8,12 @@ Engine_Avant_lab_V : CroneEngine {
     var <track_out_buses; 
     var <buf1, <buf2, <buf3, <buf4;
     var <dummy_buf;
-    var <osc_bridge, <norns_addr;
+    var <osc_bridge; 
 
     alloc {
         var buffers;
 
+        // 1. RAM ALLOCATION
         buf1 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
         buf2 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
         buf3 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
@@ -32,8 +33,16 @@ Engine_Avant_lab_V : CroneEngine {
         
         track_out_buses = { Bus.audio(context.server, 2) } ! 4;
 
-        norns_addr = NetAddr("127.0.0.1", 10111);
+        // SYNC 1
+        context.server.sync;
 
+        // 2. OSC BRIDGE (Ncoco Style - Fixed)
+        // Hardcoded target, Context Source, .drop(3)
+        osc_bridge = OSCFunc({ |msg|
+            NetAddr("127.0.0.1", 10111).sendMsg("/avant_lab_v/visuals", *msg.drop(3));
+        }, '/avant_lab_v/visuals', context.server.addr).fix;
+
+        // 3. DSP DEFINITION
         SynthDef(\avant_lab_v_synth, {
             |out_bus=0, in_bus=0, buf1=0, buf2=0, buf3=0, buf4=0, dummy_buf=0,
              tape_fb_bus_idx=0, aux_return_bus_idx=0, bus_l_idx=0, bus_r_idx=0, 
@@ -43,7 +52,13 @@ Engine_Avant_lab_V : CroneEngine {
              comp_thresh=0.5, comp_ratio=2.0, comp_drive=0.0, comp_gain=0.0, 
              bass_focus_mode=0, limiter_ceil=0.0, balance=0.0| 
 
-            // --- 1. DECLARATIONS (STRICT ORDER) ---
+            // Strict Variables
+            var trig_meter, all_visual_data;
+            var report_amp_l, report_amp_r, report_gr;
+            var band_amps_array = 0.0 ! 16; 
+            var ptr_1, ptr_2, ptr_3, ptr_4;
+
+            // DSP Vars
             var fb_amt, global_q, xfeed_amt, reverb_mix;
             var reverb_time, reverb_damp;
             var input_amp, noise_amp, noise_type;
@@ -81,12 +96,9 @@ Engine_Avant_lab_V : CroneEngine {
             
             var asym_sat = { |sig| (sig + 0.2).tanh - 0.2 };
 
-            // --- 2. INITIALIZATION ---
             monitor_signal = Silent.ar(2);
             master_out = Silent.ar(2);
 
-            // --- 3. ASSIGNMENTS ---
-            
             fb_amt = \fb_amt.kr(0) * 0.6;
             global_q = \global_q.kr(1);
             xfeed_amt = \xfeed_amt.kr(0);
@@ -179,7 +191,6 @@ Engine_Avant_lab_V : CroneEngine {
             
             noise = Select.ar(noise_type, [PinkNoise.ar, WhiteNoise.ar, BrownNoise.ar]) * noise_amp * 0.05;
             
-            // Dirt (Original) [UPDATE v600.8: Gain Staging * 0.5]
             hiss_vol = (system_dirt.pow(0.75)) * 0.03;
             hum_vol = (system_dirt.pow(3)) * 0.015;
             dust_dens = LinLin.kr(system_dirt, 0.11, 1.0, 0.05, 11);
@@ -189,7 +200,6 @@ Engine_Avant_lab_V : CroneEngine {
             dust_sig = dust_sig * dust_vol * (system_dirt > 0.11);
             dirt_sig = (PinkNoise.ar(hiss_vol) + SinOsc.ar(50, 0, hum_vol) + dust_sig).dup * 0.5;
             
-            // [UPDATE v600.9] Vintage Input Filtering (35Hz - 18kHz)
             input = In.ar(in_bus, 2) * input_amp;
             input = HPF.ar(input, 35);
             input = LPF.ar(input, 18000);
@@ -247,21 +257,16 @@ Engine_Avant_lab_V : CroneEngine {
             rm_carrier = (rm_osc * 1.5).tanh + (PinkNoise.ar(0.005 * rm_inst));
             
             rm_stereo = [sig_main_tape[0].tanh * rm_carrier, sig_main_tape[1].tanh * rm_carrier] * 2.5;
-            
-            // Slew Rate Limiting (Native)
             rm_stereo = Slew.ar(rm_stereo, 4000, 4000);
-            
             rm_processed_l = rm_stereo[0];
             rm_processed_r = rm_stereo[1];
             
             bank_in = [(sig_main_tape[0] * (1.0 - rm_mix)) + (rm_processed_l * rm_mix), (sig_main_tape[1] * (1.0 - rm_mix)) + (rm_processed_r * rm_mix)];
             bank_in = HPF.ar(bank_in, pre_hpf); bank_in = LPF.ar(bank_in, pre_lpf);
 
-            // --- FILTER BANK (ALL BPF MODE - SERGE STYLE) ---
             bank_out = bank_in.collect({ |chan_sig, chan_idx| 
                 var cmix = 0;
                 16.do({ |i|
-                    // Declaraciones
                     var key_g, key_f, db, amp, f, jitter, effective_q, mod_q, rq;
                     var band, band_amp, gain_red, input_gain, drive_sig;
                     
@@ -269,34 +274,27 @@ Engine_Avant_lab_V : CroneEngine {
                     db = Lag3.kr(NamedControl.kr(key_g, -60.0), fader_lag);
                     amp = db.dbamp; 
                     
-                    // Frecuencia con Drift analógico
                     f = NamedControl.kr(key_f, init_freqs[i.clip(0,15)], 0.05) * (1 + (LFNoise2.kr(0.05+(i*0.02)).range(0.9,1.1) * filter_drift * 0.06));
                     jitter = LFNoise1.kr(1.0+(i*0.1)).range(1.0-(filter_drift*0.15), 1.0+(filter_drift*0.05));
                     
-                    // Q Dinámica (Sustain del "Piano")
                     effective_q = (global_q * LinLin.kr(db, -60, 0, 0.5, 1.2)) / (1.0 + (f/12000));
                     mod_q = effective_q * LFNoise2.kr(0.2).range(1.0, 1.0-(filter_drift*0.3));
                     rq = (1.0 / mod_q.max(0.5)).clip(0.001, 2.0);
                     
-                    // --- CORRECCIÓN CLÍNICA DE GANANCIA (DEPENDIENTE DE FRECUENCIA) ---
-                    // Ya no depende de 'i'. Depende puramente de la física de 'f'.
-                    // Fórmula Unificada: (600 / f)^0.28 con clip de seguridad.
-                    
                     input_gain = (600 / f).pow(0.28).clip(1.0, 3.0);
-                    
                     drive_sig = chan_sig * input_gain;
                     
-                    // --- TOPOLOGÍA: TODOS BPF ---
                     band = BPF.ar(drive_sig, f, rq) * (2.0 + (mod_q * 0.05)); 
                     
-                    // --- Estabilizador (Limitador por Banda) ---
                     band_amp = Amplitude.kr(band, 0.01, 0.3); 
                     gain_red = 1.0 - ((band_amp - 0.25).max(0) * stabilizer * 2.0).tanh; 
                     band = band * gain_red;
 
-                    Out.kr(bands_bus_base + i, Amplitude.kr(band));
+                    // [UPDATE] Sum bands correctly for Stereo
+                    band_amps_array[i] = band_amps_array[i] + (Amplitude.kr(band) * 0.5);
                     
-                    // Suma al bus principal con saturación asimétrica
+                    Out.kr(bands_bus_base + i, band_amps_array[i]); 
+                    
                     cmix = cmix + (LeakDC.ar(asym_sat.(band)) * amp * (1.0 - (abs(chan_idx - (i%2)) * spread)) * jitter * 2.8);
                 });
                 cmix;
@@ -316,7 +314,6 @@ Engine_Avant_lab_V : CroneEngine {
                     var mod = LFNoise2.kr(Rand(0.1, 0.3)).range(0, 0.0025); 
                     CombL.ar(p, 0.2, dt + mod, reverb_time) 
                 }).sum;
-                // No .dup
                 4.do({ |i| combs = AllpassN.ar(combs, 0.050, Rand(0.01, 0.05), 1); });
                 combs * 0.2; 
             });
@@ -355,24 +352,13 @@ Engine_Avant_lab_V : CroneEngine {
                 var input_fade_in, input_fade_out, input_win_gain;
                 var sig_out, sig_dub; 
                 var loop_len, rec_mix; 
-                var dub_memory, fade_out_time; // [v600.14] Dynamic Release Variables
+                var dub_memory, fade_out_time;
                 
                 b_idx = synth_buffers[i];
                 bus_idx = track_buses[i];
                 
-                // [UPDATE v600.14] DYNAMIC PUNCH-OUT LOGIC
-                // 1. Detect if we were dubbing (l_dub > 0). LagUD gives it "memory"
-                //    so if l_dub drops to 0 at the same time as l_rec, we still know we were dubbing.
                 dub_memory = LagUD.kr(l_dub[i], 0, 0.5);
-                
-                // 2. Select Release Time: 
-                //    - If Dub Memory > 0.01 (Was Dubbing) -> 0.3s (Slow/Creamy)
-                //    - If Dub Memory < 0.01 (Was Recording) -> 0.025s (Fast/Rhythmic)
                 fade_out_time = Select.kr(dub_memory > 0.01, [0.025, 0.3]);
-                
-                // 3. Apply LagUD to Gate Rec
-                //    - Attack: 0.005s (Fast Entry)
-                //    - Release: Dynamic (fade_out_time)
                 gate_rec = LagUD.kr(l_rec[i], 0.005, fade_out_time); 
                 
                 gate_play = Lag.kr(l_play[i], 0.01); 
@@ -386,7 +372,6 @@ Engine_Avant_lab_V : CroneEngine {
                 trk_pan = l_pan[i]; trk_width = l_width[i];
                 seek_t = l_seek_t[i]; seek_p = l_seek_p[i];
                 
-                // [UPDATE v600.10] Write Extension: Keep writing until gate is truly closed
                 target_buf = Select.kr(gate_rec > 0.0001, [dummy_buf, b_idx]);
                 
                 in = Select.ar(trk_src, [tap_clean, tap_post_tape, tap_post_filter, tap_post_reverb, trk1_in, trk2_in, trk3_in, trk4_in]);
@@ -405,30 +390,29 @@ Engine_Avant_lab_V : CroneEngine {
                 end_pos = trk_end * BufFrames.kr(b_idx);
                 
                 loop_len = (end_pos - start_pos).abs;
-                
-                // 1. User Artistic Fade (Output Only)
                 fade_len_user = (trk_xfade * SampleRate.ir).min(loop_len * 0.5).max(100);
-                
-                // 2. Micro-Fade (Recording/Feedback Only) - Fixed 10ms
                 fade_len_micro = (0.01 * SampleRate.ir).min(loop_len * 0.5).max(4);
 
                 ptr = Phasor.ar(seek_t, rate_slew * BufRateScale.kr(b_idx), start_pos, end_pos, seek_p * BufFrames.kr(b_idx));
+                
+                // [UPDATE v1013] Capture pointers explicitly for Flat Array
+                if (i == 0) { ptr_1 = ptr / BufFrames.kr(b_idx); };
+                if (i == 1) { ptr_2 = ptr / BufFrames.kr(b_idx); };
+                if (i == 2) { ptr_3 = ptr / BufFrames.kr(b_idx); };
+                if (i == 3) { ptr_4 = ptr / BufFrames.kr(b_idx); };
+                
                 Out.kr(pos_bus_base + i, ptr / BufFrames.kr(b_idx));
                 
                 dist_start = (ptr - start_pos).abs; dist_end = (end_pos - ptr).abs;
                 
-                // --- PATH A: USER OUTPUT (ASYMMETRIC SOFT ENTRY) ---
-                // [UPDATE v600.10] .pow(1.5) on Fade-In creates a softer attack curve
                 fade_in_user = (dist_start / fade_len_user).clip(0, 1).pow(1.5); 
                 fade_out_user = (dist_end / fade_len_user).clip(0, 1);
                 gain_out_user = (fade_in_user.min(fade_out_user) * 0.5 * pi).sin;
                 
-                // --- PATH B: INTERNAL FEEDBACK (CONSTANT POWER SQRT) ---
                 fade_in_micro = (dist_start / fade_len_micro).clip(0, 1);
                 fade_out_micro = (dist_end / fade_len_micro).clip(0, 1);
                 gain_micro = fade_in_micro.min(fade_out_micro).pow(0.5);
                 
-                // [UPDATE v600.10] Linear Interpolation (2) prevents Gibbs Ringing at loop points
                 play_sig = BufRd.ar(2, b_idx, ptr, 1, 2);
                 
                 deg_curve = trk_deg.pow(3.0); 
@@ -445,20 +429,14 @@ Engine_Avant_lab_V : CroneEngine {
                 play_sig = LPF.ar(play_sig, cutoff);
                 play_sig = (play_sig * (1 + (deg_curve * 0.8))).tanh;
                 dynamic_cutoff = (rate_slew.abs * 20000).clip(10, 20000);
-                play_sig = LPF.ar(LPF.ar(play_sig, dynamic_cutoff), dynamic_cutoff);
+                play_sig = LPF.ar(play_sig, dynamic_cutoff);
                 
                 sig_out = play_sig * gain_out_user; 
                 sig_dub = play_sig * gain_micro;    
                 
-                // [UPDATE v600.12] Removed internal HPF(10.0) to prevent ringing/ghost notes
                 rec_sig = (in * gain_micro * trk_rec_amp) + (sig_dub * trk_dub);
-                
-                // [UPDATE v600.12] LINEAR INTERPOLATION PUNCH-OUT
-                // Replaces XFade2 (Constant Power) to avoid +3dB bump on correlated signals
-                // Manual Linear Mix: (A * (1-mix)) + (B * mix)
                 rec_mix = (play_sig * (1.0 - gate_rec)) + (rec_sig * gate_rec);
                 
-                // [UPDATE v600.9] LeakDC to prevent DC Offset accumulation in feedback
                 BufWr.ar(LeakDC.ar(rec_mix).tanh, target_buf, ptr);
                 
                 output_sig = sig_out * gate_play; 
@@ -511,22 +489,48 @@ Engine_Avant_lab_V : CroneEngine {
             );
             
             gr_sig = (Peak.kr(driven_sig, Impulse.kr(20)) - Peak.kr(master_glue, Impulse.kr(20))).max(0);
-            Out.kr(gr_bus_idx, LagUD.kr(gr_sig, 0, 0.1));
+            
+            // Capture GR Post-Lag
+            report_gr = LagUD.kr(gr_sig, 0, 0.1);
+            Out.kr(gr_bus_idx, report_gr);
             
             master_glue = Balance2.ar(master_glue[0], master_glue[1], balance);
             master_out = Limiter.ar(master_glue.tanh, limiter_ceil.dbamp);
             
             gonio_sig = Select.ar(gonio_source, [final_signal, master_out]);
-            Out.kr(bus_l_idx, LagUD.kr(Peak.kr(gonio_sig[0], Impulse.kr(20)), 0, 0.1));
-            Out.kr(bus_r_idx, LagUD.kr(Peak.kr(gonio_sig[1], Impulse.kr(20)), 0, 0.1));
+            
+            // Capture L/R Post-Lag
+            report_amp_l = LagUD.kr(Peak.kr(gonio_sig[0], Impulse.kr(30)), 0, 0.1);
+            report_amp_r = LagUD.kr(Peak.kr(gonio_sig[1], Impulse.kr(30)), 0, 0.1);
+            
+            Out.kr(bus_l_idx, report_amp_l);
+            Out.kr(bus_r_idx, report_amp_r);
             
             master_out = master_out * main_mon_amp;
+            
+            // --- VECTORIZED REPORTING (30Hz) ---
+            trig_meter = Impulse.kr(30);
+            
+            // [UPDATE v1013] Explicit Array Construction + .flat to prevent expansion
+            all_visual_data = [
+                report_amp_l, report_amp_r, report_gr, 
+                ptr_1, ptr_2, ptr_3, ptr_4,
+                band_amps_array[0], band_amps_array[1], band_amps_array[2], band_amps_array[3],
+                band_amps_array[4], band_amps_array[5], band_amps_array[6], band_amps_array[7],
+                band_amps_array[8], band_amps_array[9], band_amps_array[10], band_amps_array[11],
+                band_amps_array[12], band_amps_array[13], band_amps_array[14], band_amps_array[15]
+            ].flat;
+            
+            SendReply.kr(trig_meter, '/avant_lab_v/visuals', all_visual_data);
             
             Out.ar(aux_return_bus_idx, loop_aux_sum);
             Out.ar(out_bus, master_out);
         }).add;
 
+        // SYNC 2
         context.server.sync;
+
+        // 4. INSTANTIATION
         synth = Synth.new(\avant_lab_v_synth, [
             \out_bus, context.out_b, \in_bus, context.in_b,
             \buf1, buf1, \buf2, buf2, \buf3, buf3, \buf4, buf4, \dummy_buf, dummy_buf,
@@ -538,15 +542,31 @@ Engine_Avant_lab_V : CroneEngine {
             \t3_bus, track_out_buses[2].index, \t4_bus, track_out_buses[3].index
         ], context.xg);
 
-        this.addPoll("amp_l", { amp_bus_l.getSynchronous });
-        this.addPoll("amp_r", { amp_bus_r.getSynchronous });
-        this.addPoll("comp_gr", { gr_bus.getSynchronous }); 
-        16.do({ |i| this.addPoll(("b" ++ i).asString, { context.server.getControlBusValue(bands_bus.index + i) }); });
-        4.do({ |i| this.addPoll(("pos" ++ (i+1)).asString, { context.server.getControlBusValue(pos_bus.index + i) }); });
-
-        // ... (Commands unchanged) ...
-        this.addCommand("buffer_read", "is", { |msg| var bufnum = buffers[msg[1]-1]; if(File.exists(msg[2]), { bufnum.zero; Buffer.readChannel(context.server, msg[2], 0, bufnum.numFrames, [0, 1], action: { |b| var dur = b.numFrames / context.server.sampleRate; b.copyData(bufnum); b.free; norns_addr.sendMsg("/buffer_info", msg[1], dur); }); }); });
-        this.addCommand("buffer_write", "isf", { |msg| var bufnum = buffers[msg[1]-1]; var duration = msg[3]; var numFrames = (duration * context.server.sampleRate).asInteger; if(numFrames > 0, { bufnum.write(msg[2], "wav", "int24", numFrames); }, { bufnum.write(msg[2], "wav", "int24"); }); });
+        // SYNC 3
+        context.server.sync;
+        
+        // 5. COMMANDS
+        this.addCommand("buffer_read", "is", { |msg| 
+            var remote = NetAddr("127.0.0.1", 10111);
+            var bufnum = buffers[msg[1]-1]; 
+            if(File.exists(msg[2]), { 
+                bufnum.zero; 
+                Buffer.readChannel(context.server, msg[2], 0, bufnum.numFrames, [0, 1], action: { |b| 
+                    var dur = b.numFrames / context.server.sampleRate; 
+                    b.copyData(bufnum); 
+                    b.free; 
+                    remote.sendMsg("/buffer_info", msg[1], dur); 
+                }); 
+            }); 
+        });
+        
+        this.addCommand("buffer_write", "isf", { |msg| 
+            var bufnum = buffers[msg[1]-1]; 
+            var duration = msg[3]; 
+            var numFrames = (duration * context.server.sampleRate).asInteger; 
+            if(numFrames > 0, { bufnum.write(msg[2], "wav", "int24", numFrames); }, { bufnum.write(msg[2], "wav", "int24"); }); 
+        });
+        
         this.addCommand("l_speed", "if", { |msg| synth.set(("l" ++ msg[1] ++ "_speed").asSymbol, msg[2]); });
         this.addCommand("l_vol", "if", { |msg| synth.set(("l" ++ msg[1] ++ "_vol").asSymbol, msg[2]); });
         this.addCommand("l_low", "if", { |msg| synth.set(("l" ++ msg[1] ++ "_low").asSymbol, msg[2]); });
@@ -617,7 +637,6 @@ Engine_Avant_lab_V : CroneEngine {
         this.addCommand("limiter_ceil", "f", { |msg| synth.set(\limiter_ceil, msg[1]); });
         this.addCommand("balance", "f", { |msg| synth.set(\balance, msg[1]); });
         
-        // [UPDATE v600.13] Added "clear" command for physical buffer erasure
         this.addCommand("clear", "i", { |msg| buffers[msg[1]-1].zero; });
     }
 
