@@ -1,5 +1,5 @@
--- Avant_lab_V lib/graphics.lua | Version 1019
--- UPDATE: Mixer Spacing, Scale Header Format, Grid Interaction
+-- Avant_lab_V lib/graphics.lua | Version 1020
+-- UPDATE: Updated IDs (bus_*) for Master Page
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -102,7 +102,7 @@ local function draw_mixer_view(state, shift)
   local sel = state.mixer_sel
   local t = state.tracks[sel]
   
-  -- [FIXED] Interaction via Grid Hold
+  -- Interaction via Grid Hold
   if state.grid_mixer_held then shift = true end
   
   screen.level(4); screen.move(64, 8); screen.text_center("SITRAL MIXER")
@@ -110,7 +110,6 @@ local function draw_mixer_view(state, shift)
   screen.font_size(8)
   if not shift then
      local vol_db = util.linlin(0, 1, -60, 12, t.vol or 0)
-     -- [FIXED] Spacing adjustment (values closer to labels)
      screen.level(3); screen.move(0, 62); screen.text("VOL:"); screen.level(15); screen.move(18, 62); screen.text(string.format("%.1f", vol_db))
      screen.level(3); screen.move(50, 62); screen.text("LOW:"); screen.level(15); screen.move(68, 62); screen.text(string.format("%.1f", t.l_low or 0))
      screen.level(3); screen.move(95, 62); screen.text("HI:"); screen.level(15); screen.move(110, 62); screen.text(string.format("%.1f", t.l_high or 0))
@@ -196,10 +195,11 @@ local function draw_master_view(state, shift)
    screen.level(3); screen.move(0, 53); screen.text("MONO BASS")
    screen.level(bf > 1 and 15 or 6); screen.move(0, 60); screen.text(txt_bf[bf] or "OFF")
    
+   -- [FIXED] Updated IDs to match new bus_* names
    if not shift then
-      draw_right_param_pair("THRESH", get_txt("comp_thresh"), "RATIO", get_txt("comp_ratio"))
+      draw_right_param_pair("THRESH", get_txt("bus_thresh"), "RATIO", get_txt("bus_ratio"))
    else
-      draw_right_param_pair("BAL", get_txt("balance"), "DRIVE", get_txt("comp_drive"))
+      draw_right_param_pair("BAL", get_txt("balance"), "DRIVE", get_txt("bus_drive"))
    end
    
    screen.update()
@@ -284,13 +284,8 @@ function Graphics.draw(state)
      screen.clear(); screen.level(4); screen.font_size(8); screen.move(0, 8)
      local s_name = Scales.list[state.preview_scale_idx].name
      local root_txt = note_names[params:get("root_note")] or "?"
-     
-     -- [FIXED] Scale header format: Remove S: prefix and (Root) in LOAD state
-     if s_name == state.loaded_scale_name then 
-        screen.text(s_name .. " (" .. root_txt .. ")") 
-     else 
-        screen.level(15); screen.text("LOAD: " .. s_name .. " >") 
-     end
+     if s_name == state.loaded_scale_name then screen.text(s_name .. " (" .. root_txt .. ")") 
+     else screen.level(15); screen.text("LOAD: " .. s_name .. " (" .. root_txt .. ") >") end
      
      screen.move(128, 8); if shift then screen.level(15) else screen.level(3) end; screen.text_right(get_txt("lfo_depth"))
      screen.move(128 - screen.text_extents(get_txt("lfo_depth")) - 2, 8); screen.level(3); screen.text_right("LFO:")
