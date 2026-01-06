@@ -1,5 +1,5 @@
--- Avant_lab_V lib/grid.lua | Version 1024
--- UPDATE: Logic Fixed for Fast Taps (Seek) vs Holds (Loop) + Debounce
+-- Avant_lab_V lib/grid.lua | Version 2012
+-- UPDATE: Presets (Row 7, 5-8) are now always LATCHING (Momentary toggle ignored here)
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -431,13 +431,13 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         local slot = x - 4
         if z == 1 then
            preset_press_time[slot] = util.time()
-           if state.grid_momentary_mode then
-              if is_tape_view then state.preset_memory = state.tape_preset_selected
-              else state.preset_memory = state.main_preset_selected end
-           end
+           
+           -- [FIX v2012] REMOVED Momentary Logic here. Presets are now LATCHING.
+           
            local is_current = false
            if is_tape_view then is_current = (state.tape_preset_selected == slot)
            else is_current = (state.main_preset_selected == slot) end
+           
            if presets_status[slot] == 0 then
              if is_tape_view then
                 local saved_tracks = {}
@@ -490,25 +490,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
               end
            end
         elseif z == 0 then
-           if state.grid_momentary_mode and state.preset_memory then
-              local prev = state.preset_memory
-              if is_tape_view then state.morph_tape_active = true; state.morph_tape_slot = prev; state.morph_tape_start_time = util.time(); state.tape_preset_selected = prev
-              else 
-                 state.morph_main_src = {}; for i=1,16 do state.morph_main_src[i] = state.bands_gain[i] or -60 end
-                 state.morph_main_src_q = params:get("global_q")
-                 state.morph_main_src_fb = params:get("feedback")
-                 state.morph_main_src_freqs = {}
-                 for i=1, 16 do table.insert(state.morph_main_src_freqs, params:get("freq_"..i)) end
-                 state.morph_main_active = true; state.morph_main_slot = prev; state.morph_main_start_time = util.time(); state.main_preset_selected = prev 
-                 local target = presets_data[prev]
-                 if target and target.scale_idx then 
-                    state.preview_scale_idx = target.scale_idx
-                    if Scales and Scales.list and Scales.list[target.scale_idx] then 
-                        state.loaded_scale_name = Scales.list[target.scale_idx].name 
-                    end 
-                 end
-              end
-           end
+           -- [FIX v2012] REMOVED Momentary restoration logic.
            local d = util.time() - preset_press_time[slot]
            if presets_status[slot] == 1 and d > 1.0 then presets_status[slot] = 0; presets_data[slot] = {}; if is_tape_view then state.tape_preset_selected = 0 else state.main_preset_selected = 0 end end
         end
