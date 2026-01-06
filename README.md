@@ -1,5 +1,5 @@
 # AVANT_LAB_V // SPECTRAL LABORATORY
-### Version 2010 | Monome Norns
+### Monome Norns
 
 **Avant_lab_V** is a historical reconstruction of an electronic music studio from the 1960s living inside your Norns. It combines a **16-Band Resonant Filter Bank** (Serge/Buchla style) with a **4-Track Varispeed Tape Machine**.
 
