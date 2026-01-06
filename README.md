@@ -1,155 +1,180 @@
-AVANT_LAB_V
+# AVANT_LAB_V // SPECTRAL LABORATORY
+### Version 2010 | Monome Norns
 
-Environment for Electroacoustic Research
-Avant_lab_V is not just a looper or an effect. It is a simulation of a 1960s Electronic Music Studio living inside your Monome Norns.
+**Avant_lab_V** is a historical reconstruction of an electronic music studio from the 1960s living inside your Norns. It combines a **16-Band Resonant Filter Bank** (Serge/Buchla style) with a **4-Track Varipspeed Tape Machine**.
 
-It is designed to explore Texture, Resonance, and Degradation. Unlike modern digital samplers that aim for perfection, this instrument creates a living ecosystem where sound degrades, feedbacks, and evolves organically.
+It is designed to explore **Texture, Resonance, and Degradation**. Unlike modern digital samplers that aim for perfection, this instrument creates a living ecosystem where sound degrades, feedbacks, and evolves organically.
 
-📚 1. THEORETICAL FUNDAMENTALS (Read This First)
-To master this instrument, you must understand three physical concepts it emulates.
+> **⚠️ HARDWARE NOTE: THE GRID**
+> While Avant_lab_V is fully functional on Norns standalone, **a Monome Grid (128) is highly recommended**.
+> The Grid transforms the script into a tactile instrument, providing direct access to the 16 filter faders, the tape loop windows, and the performance sequencers simultaneously.
 
-A. What is a "Fixed Filter Bank"?
+---
+
+## 📚 1. THEORETICAL FUNDAMENTALS (Read This First)
+
+To master this instrument, you must understand the three physical concepts it emulates.
+
+### A. The "Fixed Filter Bank" as an Instrument
 Imagine a graphic equalizer, but instead of subtle tone shaping, it is extreme.
+*   **The Concept:** It divides sound into 16 specific frequency bands.
+*   **The Instrument:** In Avant_lab_V, these bands are **Resonators**. Think of them like the strings of a piano. If you feed noise or audio into them, they vibrate. By increasing **Feedback**, they self-oscillate, effectively turning the EQ into a Polyphonic Synthesizer.
+*   **Tuning:** You can "tune" these 16 bands to specific historical scales (Siemens, Moog) or mathematical series (Fibonacci, Golden Ratio).
 
-The Concept: It divides sound into 16 specific frequency bands (slices of the spectrum).
-The Instrument: In Avant_lab_V, these bands are not just volume sliders; they are Resonators. Think of them like the strings of a piano. If you shout into a piano, the strings vibrate in sympathy. Here, the filters vibrate when audio passes through them. You can "tune" these strings to specific historical or mathematical scales.
-B. The Phenomenon of Feedback
-Feedback is what happens when a sound hears itself.
+### B. Feedback & The "Edge of Chaos"
+Feedback occurs when the output flows back into the input.
+*   **Positive Feedback:** Creates energy buildup.
+*   **Physics Engine:** This script uses complex math to prevent digital clipping, but it allows the energy to grow massively. The sweet spot is often just before distortion, where the sound becomes "liquid."
 
-Positive Feedback: When the output flows back into the input, energy builds up.
-The Edge of Chaos: This script is designed to live on the edge. If you increase the Feedback parameter, the filters will start to self-oscillate, turning percussive sounds into long, singing drones.
-Note: The system includes safety math (physics modeling) to prevent digital explosions, but be careful with your speakers!
-C. Magnetic Tape Physics
-The loopers here are not digital buffers; they emulate magnetic tape.
+### C. Magnetic Tape Physics
+The loopers here are not digital buffers; they emulate physical tape.
+*   **Destructive Recording:** There is no "Undo". If you record over a sound, the magnets erase the previous layer.
+*   **Varispeed:** Changing speed changes pitch. Slowing down the tape creates deep, disintegration textures.
+*   **Erosion:** The tape wears out. Noise, hiss, and wobble (Wow/Flutter) are essential parts of the aesthetic.
 
-No Undo: Tape is destructive. If you record over a sound, the old sound is physically magnetized away.
-Varispeed: Changing pitch also changes time. Lowering the speed creates deep, slow textures.
-Degradation: The tape wears out. Noise, hiss, and wobble (Wow/Flutter) are part of the aesthetic.
-🧭 2. NAVIGATION & INTERFACE
+---
 
-The Golden Rule
-The instrument is too complex for 3 knobs. We use K1 as a SHIFT key.
+## 🧭 2. NAVIGATION (The Golden Rule)
 
-CHANGE PAGE: Hold K1 + Press K2 (Previous) or K3 (Next).
-FINE TUNE: Holding K1 while turning an Encoder usually provides fine adjustment.
-The Page Map (Signal Flow)
-The 9 pages are organized by function:
+The instrument is vast, so we use **Pages**.
 
-Page 1 (GLOBAL): The master controls for the Resonator (Scale, Q, Feedback).
-Page 2 (FILTER): Detailed control of the Filter Bank behavior.
-Page 3 (MIX): Input levels, Reverb, and Routing.
-Page 4 (TAPE FX): The physical properties of the tape machine.
-Page 5 (PING): Internal impulse generator.
-Page 6 (TIME): Sequencer speeds and Morphing times.
-Page 7 (LOOPERS): The 4-Track Tape Machine (Recording/Editing).
-Page 8 (LIBRARY): Save/Load your tape reels to disk.
-Page 9 (MIXER): Final mixing console (Volume, EQ, Pan).
-🎛️ 3. THE RESONATOR (Sound Design)
-This is the heart of the sound. Go to Page 1.
+*   **K1 (The SHIFT Key):** Holding **K1** changes the function of Knobs and Buttons.
+*   **CHANGE PAGE:** Hold **K1** + Press **K2** (Previous) or **K3** (Next).
+*   **The Loop:** Pages wrap around (Page 10 -> Page 1).
 
-Primary Controls
-E1 (Scale): Selects the tuning of the 16 bands.
-Examples: Bark (Psychoacoustic), Pythagorean (Harmonic), Marimba (Percussive).
-Shift+E1 (Root): Transposes the entire scale (e.g., C to F#).
-E2 (Feedback): The amount of signal sent back into the filters.
-0%: Clean EQ.
-50%: Metallic reverb tail.
-90%: Self-oscillation (The filters become a synthesizer).
-E3 (Global Q): The "sharpness" of the filters.
-Low: Wide bands, blending together.
-High: Laser-focused frequencies, bell-like tones.
-Note on Physics: At very high frequencies (>10kHz), the system automatically tightens the Q to prevent digital aliasing. This is normal behavior.
-Advanced Filter Physics (Page 2)
-E1 (Mix): Blends between the raw input and the filtered sound.
-E2 (HPF): High Pass Filter. Cuts sub-bass mud before it hits the resonators.
-E3 (LPF): Low Pass Filter. Cuts harsh treble.
-Shift+E2 (Drift): Simulates aging capacitors. The frequencies of the bands will slowly wander, creating a "living" chorus effect.
-Shift+E3 (Spread): Pans odd bands Left and even bands Right for wide stereo images.
-⚡ 4. THE SOURCE (Input & Ping)
-How do we excite the resonator? Go to Page 3 (Mix) and Page 5 (Ping).
+### The Page Map
+*   **1. GLOBAL:** Master Resonator controls.
+*   **2. FILTER:** Filter bank topology & Drift.
+*   **3. MIX:** Inputs, Dirt, and Routing.
+*   **4. TAPE FX:** Degradation engine (Wow/Flutter).
+*   **5. PING:** Internal rhythmic pulse generator.
+*   **6. TIME:** Morphing and Sequencer speeds.
+*   **7. LOOPERS:** The 4-Track Tape Machine (Main View).
+*   **8. LIBRARY:** Load/Save Reels to disk.
+*   **9. MIXER:** The "Sitral" Console (Volume/EQ).
+*   **10. MASTER:** Dynamics & Metering.
 
-Input & Dirt (Page 3)
-E1 (Reverb): A Master Reverb that sits after the filters to glue the sound.
-Shift+E1 (Dirt): Adds vintage noise floor (Hiss, Hum, and Crackle). Essential for self-oscillation textures.
-Shift+E3 (Noise): Injects white/pink noise. Useful for "playing" the filters like a wind instrument.
-The Ping Generator (Page 5)
-A built-in rhythmic engine to strike the filters.
+---
 
-K2 (Mode): Toggles between Free (Hz) and Euclidean (Tempo Synced).
-E1 (Rate): Speed of the pulses.
-E2 (Jitter): Humanizes the rhythm with randomness.
-E3 (Timbre): Changes the "hardness" of the strike (Low pass vs Full spectrum).
-📼 5. THE TAPE MACHINE (Loopers)
-Navigate to Page 7. This is where you record.
-You have 4 Independent Tape Decks.
+## 🎛️ 3. THE RESONATOR (Sound Design)
 
-The Transport (K2)
-The main button K2 follows a strict cycle to encourage performance:
+This is the heart of the sound. Start on **Page 1**.
 
-Empty -> Press K2 -> RECORD (Red).
-Recording -> Press K2 -> OVERDUB (Orange). Loop is defined.
-Overdubbing -> Press K2 -> PLAY (Green). Safe mode.
-Playing -> Press K2 -> OVERDUB.
-Any State -> Double Click K2 -> STOP (White).
-Any State -> Hold K2 -> CLEAR.
-Tape Physics (Encoders)
-E1 (Vol): Playback volume of the selected track.
-E2 (Speed): Varispeed.
-1.0: Normal speed.
-0.5: Octave down (Half speed).
--1.0: Reverse.
-Note: Changing speed changes pitch. This is physical.
-E3 (Dub): Feedback/Decay.
-1.0: Infinite loops (Sound never dies).
-0.9: Echos fade out slowly (Frippertronics style).
-0.0: The loop is replaced by new audio immediately.
-Degradation Effects (Page 4)
-Here you damage the machine.
+### Primary Controls (Page 1)
+*   **E1 (Scale):** Selects the tuning of the 16 bands.
+    *   *Vintage:* **B&K 2107** (Scientific), **Moog 914** (Classic).
+    *   *Math:* **Pythagorean** (Harmonic), **Fibonacci** (Natural).
+    *   *Shift+E1 (Root):* Transposes the frequency map.
+*   **E2 (Feedback):** The amount of signal sent back into the filters.
+    *   *0%:* Clean EQ.
+    *   *50%:* Metallic reverb tail.
+    *   *90%+:* Self-oscillation (Drone generator).
+*   **E3 (Global Q):** Bandwidth / Resonance.
+    *   *Low:* Wide bands, blending together (Noise).
+    *   *High:* Laser-focused frequencies (Tones).
+    *   *Note:* The system automatically tightens the Q at high frequencies (>8kHz) to prevent digital aliasing and protect your speakers.
 
-Shift+E1 (Erosion): Simulates magnetic dropout and dust. Creates rhythmic silence.
-Shift+E2 (Wow): Slow pitch warping (warped vinyl).
-Shift+E3 (Flutter): Fast pitch vibration (bad motor).
-🎚️ 6. THE CONSOLE (Final Mixer)
-Page 9 is your Sitral Console.
+### Advanced Filter Physics (Page 2)
+*   **E1 (Mix):** Dry/Wet blend of the Filter Bank.
+*   **E2 (HPF):** Cuts sub-bass mud before the resonators.
+*   **E3 (LPF):** Cuts harsh treble.
+*   **Shift+E1 (Stabilizer):** Limits the energy per band.
+*   **Shift+E2 (Drift):** Simulates aging capacitors. The frequencies wander slightly, creating a "living" chorus effect.
+*   **Shift+E3 (Spread):** Stereo separation (Odd bands Left, Even bands Right).
 
-Select Track: K2 / K3.
-E2 (Low): Vintage Low Shelf. Boost for warmth, Cut for clarity.
-E3 (High): Vintage High Shelf. Boost for "Air".
-Shift+E1 (Filter): A DJ-style combo filter. Center is clean. Left is Low-Pass, Right is High-Pass.
-Shift+E2 (Pan): Stereo placement.
-🎹 7. THE GRID (The Control Surface)
-While Norns can do everything, the Monome Grid turns this script into a tactile instrument.
+---
 
-Visual Feedback
-Rows 1-4: These are your 4 Tape Tracks.
-Dim Pulse: The tape is moving.
-Bright Dot: The Playhead (Audio position).
-Fixed Dots: Start/End loop points.
-Interaction: Touch the row to jump the playhead (Seek). Hold two buttons to set a new Loop.
-The Fader Bank (Main View)
-Rows 1-6 (Vertical): 16 Virtual Faders controlling the gain of the 16 Filter Bands.
-Draw curves with your fingers to sculpt the spectrum.
-The Ribbon Controller (Row 5)
-Buttons 1-4: Select the active Track.
-Buttons 6-16: A speed strip. Center is STOP. Left is Reverse, Right is Forward. Jump instantly between speeds.
-Performance Row (Row 7)
-Buttons 1-4 (Sequencers): Record your grid presses.
-Click: Play/Rec.
-Double: Stop.
-Buttons 5-8 (Presets):
-Click Empty: Save current state.
-Click Full: Load state (Morph).
-Buttons 9-12 (Master FX):
-9 (Kill): Cuts all high frequencies instantly.
-10 (Freeze): Max feedback + Reverb swell.
-11 (Warble): Momentary extreme tape flutter.
-12 (Brake): Tape stop effect.
-System Row (Row 8)
-Button 1 (Momentary): If active, Presets and Ribbon jumps only last while you hold the button.
-Button 3 (Random): Randomizes the filter bank gains.
-Buttons 7-16: Direct Page Access (Page 1 to 10).
-🛠️ TIPS & TRICKS
-The "Ghost" Choir: Set Scale to Roland VP-330, High Q, High Feedback. Feed white noise (Shift+E3 on Page 3). You will hear a ghostly choir singing.
-Polyrhythmic Loops: Record Track 1 at normal speed. Record Track 2. Then set Track 2 speed to 0.5 or 1.5. The loops will drift apart.
-The Drone Machine: Record a short sound. Set Loop Start/End points very close together on the Grid. Set Speed to 0.25. You now have a granular drone.
-Feedback limit: If the sound disappears or "clicks" at very high frequencies, the Physics Engine has engaged protection mode to prevent speaker damage. This is normal. Lower the Q slightly.
+## ⚡ 4. THE SOURCE (Exciting the Resonator)
+
+How do we make it sound? Go to **Page 3** and **Page 5**.
+
+### Input & Dirt (Page 3)
+*   **E1 (Reverb):** Master Reverb (Post-Filter).
+*   **Shift+E1 (System Dirt):** Adds a noise floor (Hiss, Hum, Dust). Essential for self-oscillation textures (gives the feedback something to "chew on").
+*   **Shift+E3 (Noise Level):** Injects White/Pink noise. Useful for sound design without external input.
+
+### The Ping Generator (Page 5)
+A rhythmic impulse engine to strike the filters like a bell.
+*   **K2 (Mode):** Toggles **Internal** (Free Hz) or **Euclidean** (Tempo Synced).
+*   **E1 (Rate):** Speed of the pulses.
+*   **E2 (Jitter):** Humanizes the rhythm with randomness.
+*   **E3 (Timbre):** Hardness of the strike (Low Pass vs Full Spectrum).
+
+---
+
+## 📼 5. THE TAPE MACHINE (Loopers)
+
+Navigate to **Page 7**. You have **4 Independent Tape Decks**.
+
+### The Transport (K2)
+The main button **K2** follows a "Performance Cycle":
+1.  **Empty** -> Press K2 -> **RECORD** (Red).
+2.  **Recording** -> Press K2 -> **OVERDUB** (Orange). *Loop defined.*
+3.  **Overdubbing** -> Press K2 -> **PLAY** (Green). *Safe mode.*
+4.  **Playing** -> Press K2 -> **OVERDUB**.
+5.  **Any State** -> Double Click K2 -> **STOP** (White).
+6.  **Any State** -> Hold K2 (1s) -> **CLEAR**.
+
+### Tape Physics (Encoders)
+*   **E1 (Vol):** Playback volume.
+*   **E2 (Speed):** **Varispeed**.
+    *   *1.0:* Normal.
+    *   *0.5:* Octave Down / Half Speed.
+    *   *-1.0:* Reverse.
+*   **E3 (Dub):** **Feedback/Decay**.
+    *   *1.0:* Infinite loops (Sound never dies).
+    *   *0.9:* Echos fade out slowly (Frippertronics).
+    *   *0.0:* Replace audio immediately.
+
+### Degradation (Page 4)
+*   **Shift+E1 (Erosion):** Simulates magnetic dropout and dust.
+*   **Shift+E2 (Wow):** Slow pitch warping (warped vinyl).
+*   **Shift+E3 (Flutter):** Fast motor vibration.
+
+---
+
+## 🎚️ 6. THE CONSOLE (Mixing)
+
+**Page 9** is your "Sitral" Mixing Console.
+*   **Select Track:** Press **K2** / **K3**.
+*   **E2 (Low):** Vintage Low Shelf (Warmth).
+*   **E3 (High):** Vintage High Shelf (Air).
+*   **Shift+E1 (Filter):** DJ-Style Combo Filter.
+*   **Shift+E2 (Pan):** Stereo placement.
+
+---
+
+## 🎹 7. THE GRID (Control Surface)
+
+### 🅰️ MAIN VIEW (Pages 1, 2, 3, 4, 6, 9)
+*   **Rows 1-6 (Vertical):** 16 Virtual Faders. Control the gain of each filter band directly.
+
+### 🅱️ TAPE VIEW (Page 7 / or Override)
+*   **Rows 1-4:** Represents Tracks 1-4.
+    *   **Dim Pulse:** Tape moving.
+    *   **Bright Dot:** Playhead (Audio position).
+    *   **Touch:** Jump playhead (Seek).
+    *   **Hold 2 Buttons:** Set Loop Start/End points.
+*   **Row 5 (1-4):** **Track Select**.
+*   **Row 5 (6-16):** **Ribbon Controller**. Jump instantly between speeds (-2x, -1x, 0, +1x, +2x).
+*   **Row 6:** **Tape Brake**. Apply pressure to slow down the tape manually.
+
+### 👇 PERFORMANCE ROW (Row 7)
+*   **1-4 (Sequencers):** Record your grid presses.
+    *   *Click:* Play/Rec. *Double:* Stop. *Hold:* Clear.
+*   **5-8 (Presets):** Save/Load snapshots of the system.
+    *   *Click Empty:* Save. *Click Full:* Morph.
+*   **9 (Kill):** Momentary High-Cut filter.
+*   **10 (Freeze):** Max Feedback + Reverb Swell.
+*   **11 (Warble):** Extreme Flutter effect.
+*   **12 (Brake):** Global Tape Stop.
+*   **13-16 (Transport):** Direct Rec/Play control for Tracks 1-4.
+
+---
+
+## 🛠️ TIPS & TRICKS
+
+1.  **The "Ghost" Choir:** Set Scale to *Roland VP-330*, High Q, High Feedback. Feed white noise (Shift+E3 on Page 3). You will hear a ghostly choir singing chords.
+2.  **Polyrhythmic Loops:** Record Track 1 at normal speed. Record Track 2. Then set Track 2 speed to *0.5* or *1.5*. The loops will drift apart over time.
+3.  **The Drone Machine:** Record a short sound. On the Grid, set Loop Start/End points very close together (1 or 2 buttons). Set Speed to *0.25*. You now have a granular drone synthesizer.
+4.  **Physics Protection:** If you hear a click or silence at very high frequencies (Band 16), the engine is protecting the audio path from mathematical explosion. Lower the Q or Feedback slightly.
