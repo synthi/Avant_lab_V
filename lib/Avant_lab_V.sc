@@ -1,5 +1,5 @@
-// lib/Engine_Avant_lab_V.sc | Version 1013
-// UPDATE: Fixed Multichannel Expansion bug (690Hz -> 30Hz), .flat array, standard path
+// lib/Engine_Avant_lab_V.sc | Version 2010
+// UPDATE: Final Stability Architecture - 18kHz Limit, Empirical RQ Formula, Gain Comp & Inverted Topology
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -36,8 +36,7 @@ Engine_Avant_lab_V : CroneEngine {
         // SYNC 1
         context.server.sync;
 
-        // 2. OSC BRIDGE (Ncoco Style - Fixed)
-        // Hardcoded target, Context Source, .drop(3)
+        // 2. OSC BRIDGE
         osc_bridge = OSCFunc({ |msg|
             NetAddr("127.0.0.1", 10111).sendMsg("/avant_lab_v/visuals", *msg.drop(3));
         }, '/avant_lab_v/visuals', context.server.addr).fix;
@@ -55,8 +54,13 @@ Engine_Avant_lab_V : CroneEngine {
             // Strict Variables
             var trig_meter, all_visual_data;
             var report_amp_l, report_amp_r, report_gr;
-            var band_amps_array = 0.0 ! 16; 
-            var ptr_1, ptr_2, ptr_3, ptr_4;
+            
+            // Accumulators
+            var sum_l = 0.0;
+            var sum_r = 0.0;
+            
+            var pointers = Array.newClear(4);
+            var bands_clean_read;
 
             // DSP Vars
             var fb_amt, global_q, xfeed_amt, reverb_mix;
@@ -264,41 +268,67 @@ Engine_Avant_lab_V : CroneEngine {
             bank_in = [(sig_main_tape[0] * (1.0 - rm_mix)) + (rm_processed_l * rm_mix), (sig_main_tape[1] * (1.0 - rm_mix)) + (rm_processed_r * rm_mix)];
             bank_in = HPF.ar(bank_in, pre_hpf); bank_in = LPF.ar(bank_in, pre_lpf);
 
-            bank_out = bank_in.collect({ |chan_sig, chan_idx| 
-                var cmix = 0;
-                16.do({ |i|
-                    var key_g, key_f, db, amp, f, jitter, effective_q, mod_q, rq;
-                    var band, band_amp, gain_red, input_gain, drive_sig;
-                    
-                    key_g = ("g" ++ i).asSymbol; key_f = ("f" ++ i).asSymbol;
-                    db = Lag3.kr(NamedControl.kr(key_g, -60.0), fader_lag);
-                    amp = db.dbamp; 
-                    
-                    f = NamedControl.kr(key_f, init_freqs[i.clip(0,15)], 0.05) * (1 + (LFNoise2.kr(0.05+(i*0.02)).range(0.9,1.1) * filter_drift * 0.06));
-                    jitter = LFNoise1.kr(1.0+(i*0.1)).range(1.0-(filter_drift*0.15), 1.0+(filter_drift*0.05));
-                    
-                    effective_q = (global_q * LinLin.kr(db, -60, 0, 0.5, 1.2)) / (1.0 + (f/12000));
-                    mod_q = effective_q * LFNoise2.kr(0.2).range(1.0, 1.0-(filter_drift*0.3));
-                    rq = (1.0 / mod_q.max(0.5)).clip(0.001, 2.0);
-                    
-                    input_gain = (600 / f).pow(0.28).clip(1.0, 3.0);
-                    drive_sig = chan_sig * input_gain;
-                    
-                    band = BPF.ar(drive_sig, f, rq) * (2.0 + (mod_q * 0.05)); 
-                    
-                    band_amp = Amplitude.kr(band, 0.01, 0.3); 
-                    gain_red = 1.0 - ((band_amp - 0.25).max(0) * stabilizer * 2.0).tanh; 
-                    band = band * gain_red;
-
-                    // [UPDATE] Sum bands correctly for Stereo
-                    band_amps_array[i] = band_amps_array[i] + (Amplitude.kr(band) * 0.5);
-                    
-                    Out.kr(bands_bus_base + i, band_amps_array[i]); 
-                    
-                    cmix = cmix + (LeakDC.ar(asym_sat.(band)) * amp * (1.0 - (abs(chan_idx - (i%2)) * spread)) * jitter * 2.8);
-                });
-                cmix;
+            // [FIX v2006] TOPOLOGY INVERSION (Bands -> Channels)
+            // [FIX v2010] 18kHz Limit & Empirical RQ Protection
+            16.do({ |i|
+                var key_g, key_f, db, amp, f, jitter, effective_q, mod_q, rq, raw_rq;
+                var input_gain, base_gain;
+                var band_l, band_r;
+                var spread_l, spread_r;
+                var max_safe_rq, final_rq, squish_factor, compensation;
+                
+                key_g = ("g" ++ i).asSymbol; key_f = ("f" ++ i).asSymbol;
+                db = Lag3.kr(NamedControl.kr(key_g, -60.0), fader_lag);
+                amp = db.dbamp; 
+                
+                // [FIX v2010] Hard Limit Freq to 18kHz
+                f = NamedControl.kr(key_f, init_freqs[i.clip(0,15)], 0.05) * (1 + (LFNoise2.kr(0.05+(i*0.02)).range(0.9,1.1) * filter_drift * 0.06));
+                f = f.clip(20, 18000);
+                
+                jitter = LFNoise1.kr(1.0+(i*0.1)).range(1.0-(filter_drift*0.15), 1.0+(filter_drift*0.05));
+                
+                effective_q = (global_q * LinLin.kr(db, -60, 0, 0.5, 1.2)) / (1.0 + (f/12000));
+                mod_q = effective_q * LFNoise2.kr(0.2).range(1.0, 1.0-(filter_drift*0.3));
+                
+                raw_rq = (1.0 / mod_q.max(0.5));
+                
+                // [FIX v2009/2010] Empirical Stability Formula
+                // Linearly reduces max width as freq increases
+                max_safe_rq = (2.44 - (f * 0.0001075)).max(0.01);
+                
+                final_rq = raw_rq.min(max_safe_rq);
+                
+                // Gain Compensation
+                squish_factor = final_rq / raw_rq;
+                compensation = (1.0 / squish_factor).sqrt.clip(1.0, 1.8);
+                
+                base_gain = (600 / f).pow(0.28).clip(0.1, 3.0);
+                input_gain = base_gain * compensation;
+                
+                // Calculate L
+                band_l = BPF.ar(bank_in[0] * input_gain, f, final_rq) * (2.0 + (mod_q * 0.05));
+                // Calculate R
+                band_r = BPF.ar(bank_in[1] * input_gain, f, final_rq) * (2.0 + (mod_q * 0.05));
+                
+                // Stabilizer
+                band_l = band_l * (1.0 - ((Amplitude.kr(band_l,0.01,0.3) - 0.25).max(0) * stabilizer * 2.0).tanh);
+                band_r = band_r * (1.0 - ((Amplitude.kr(band_r,0.01,0.3) - 0.25).max(0) * stabilizer * 2.0).tanh);
+                
+                // Metering
+                Out.kr(bands_bus_base + i, (Amplitude.kr(band_l) + Amplitude.kr(band_r)) * 0.5);
+                
+                // Spreading
+                spread_l = 1.0 - (abs(0 - (i%2)) * spread); 
+                spread_r = 1.0 - (abs(1 - (i%2)) * spread); 
+                
+                // Summing
+                sum_l = sum_l + (LeakDC.ar(asym_sat.(band_l)) * amp * spread_l * jitter * 2.8);
+                sum_r = sum_r + (LeakDC.ar(asym_sat.(band_r)) * amp * spread_r * jitter * 2.8);
             });
+            
+            // Reconstruct Stereo Signal
+            bank_out = [sum_l, sum_r];
+            
             sig_filters = (bank_in * (1.0 - filter_mix)) + (bank_out * filter_mix);
             tap_post_filter = sig_filters;
             
@@ -395,13 +425,10 @@ Engine_Avant_lab_V : CroneEngine {
 
                 ptr = Phasor.ar(seek_t, rate_slew * BufRateScale.kr(b_idx), start_pos, end_pos, seek_p * BufFrames.kr(b_idx));
                 
-                // [UPDATE v1013] Capture pointers explicitly for Flat Array
-                if (i == 0) { ptr_1 = ptr / BufFrames.kr(b_idx); };
-                if (i == 1) { ptr_2 = ptr / BufFrames.kr(b_idx); };
-                if (i == 2) { ptr_3 = ptr / BufFrames.kr(b_idx); };
-                if (i == 3) { ptr_4 = ptr / BufFrames.kr(b_idx); };
+                // [FIX v2000] Capture Pointer into Array + Explicit A2K Conversion
+                pointers[i] = A2K.kr(ptr / BufFrames.kr(b_idx));
                 
-                Out.kr(pos_bus_base + i, ptr / BufFrames.kr(b_idx));
+                Out.kr(pos_bus_base + i, pointers[i]); 
                 
                 dist_start = (ptr - start_pos).abs; dist_end = (end_pos - ptr).abs;
                 
@@ -490,8 +517,9 @@ Engine_Avant_lab_V : CroneEngine {
             
             gr_sig = (Peak.kr(driven_sig, Impulse.kr(20)) - Peak.kr(master_glue, Impulse.kr(20))).max(0);
             
-            // Capture GR Post-Lag
-            report_gr = LagUD.kr(gr_sig, 0, 0.1);
+            // [FIX v2001] Force Stereo to Mono (Summing reduction) to prevent Array Expansion
+            report_gr = LagUD.kr(gr_sig.sum, 0, 0.1);
+            
             Out.kr(gr_bus_idx, report_gr);
             
             master_glue = Balance2.ar(master_glue[0], master_glue[1], balance);
@@ -511,14 +539,14 @@ Engine_Avant_lab_V : CroneEngine {
             // --- VECTORIZED REPORTING (30Hz) ---
             trig_meter = Impulse.kr(30);
             
-            // [UPDATE v1013] Explicit Array Construction + .flat to prevent expansion
+            // [FIX v2003] Decouple Bands via In.kr to prevent calculation graph overflow
+            bands_clean_read = 16.collect({ |i| In.kr(bands_bus_base + i) });
+            
+            // [FIX v2006] Padding removed (Architecture fixed)
             all_visual_data = [
                 report_amp_l, report_amp_r, report_gr, 
-                ptr_1, ptr_2, ptr_3, ptr_4,
-                band_amps_array[0], band_amps_array[1], band_amps_array[2], band_amps_array[3],
-                band_amps_array[4], band_amps_array[5], band_amps_array[6], band_amps_array[7],
-                band_amps_array[8], band_amps_array[9], band_amps_array[10], band_amps_array[11],
-                band_amps_array[12], band_amps_array[13], band_amps_array[14], band_amps_array[15]
+                pointers[0], pointers[1], pointers[2], pointers[3],
+                bands_clean_read
             ].flat;
             
             SendReply.kr(trig_meter, '/avant_lab_v/visuals', all_visual_data);
