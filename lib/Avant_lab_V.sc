@@ -1,5 +1,5 @@
-// lib/Engine_Avant_lab_V.sc | Version 2010
-// UPDATE: Final Stability Architecture - 18kHz Limit, Empirical RQ Formula, Gain Comp & Inverted Topology
+// lib/Engine_Avant_lab_V.sc | Version 2013
+// UPDATE: Reporting Rate increased to 60Hz for fluid OLED response
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -268,7 +268,7 @@ Engine_Avant_lab_V : CroneEngine {
             bank_in = [(sig_main_tape[0] * (1.0 - rm_mix)) + (rm_processed_l * rm_mix), (sig_main_tape[1] * (1.0 - rm_mix)) + (rm_processed_r * rm_mix)];
             bank_in = HPF.ar(bank_in, pre_hpf); bank_in = LPF.ar(bank_in, pre_lpf);
 
-            // [FIX v2006] TOPOLOGY INVERSION (Bands -> Channels)
+            // [FIX v2006] TOPOLOGY INVERSION (Bands Outer Loop)
             // [FIX v2010] 18kHz Limit & Empirical RQ Protection
             16.do({ |i|
                 var key_g, key_f, db, amp, f, jitter, effective_q, mod_q, rq, raw_rq;
@@ -536,8 +536,9 @@ Engine_Avant_lab_V : CroneEngine {
             
             master_out = master_out * main_mon_amp;
             
-            // --- VECTORIZED REPORTING (30Hz) ---
-            trig_meter = Impulse.kr(30);
+            // --- VECTORIZED REPORTING (60Hz) ---
+            // [FIX v2013] Increased rate to 60Hz for smooth OLED performance
+            trig_meter = Impulse.kr(60);
             
             // [FIX v2003] Decouple Bands via In.kr to prevent calculation graph overflow
             bands_clean_read = 16.collect({ |i| In.kr(bands_bus_base + i) });
