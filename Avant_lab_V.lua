@@ -1,5 +1,5 @@
--- Avant_lab_V.lua | Version 1019
--- UPDATE: Adjusted Formatters (No Hz, specific decimals)
+-- Avant_lab_V.lua | Version 1024
+-- UPDATE: Safety Init (pcall for loaded flag)
 
 engine.name = 'Avant_lab_V'
 
@@ -29,7 +29,14 @@ end
 
 -- [HELPER] Wrapper for param actions to update cache
 local function set_p(id, val)
-    if engine[id] then engine[id](val) end
+    -- Map new Lua IDs to Engine commands if names differ
+    local eng_cmd = id
+    if id == "bus_thresh" then eng_cmd = "comp_thresh"
+    elseif id == "bus_ratio" then eng_cmd = "comp_ratio"
+    elseif id == "bus_drive" then eng_cmd = "comp_drive" 
+    end
+    
+    if engine[eng_cmd] then engine[eng_cmd](val) end
     state.str_cache[id] = params:string(id)
 end
 
@@ -195,6 +202,8 @@ function update_morph_tape()
 end
 
 function osc.event(path, args, from)
+  if not state.loaded then return end
+
   if path == "/ping_pulse" then
     table.insert(state.ping_pulses, {t0 = util.time(), amp = args[1], jitter = params:get("ping_jitter")})
   elseif path == "/buffer_info" then
@@ -211,6 +220,7 @@ function osc.event(path, args, from)
         state.comp_gr = args[3]
         
         local h = state.heads.gonio
+        -- Use scope_zoom safely (now guaranteed to exist)
         state.gonio_history[h].s = util.clamp((args[1]+args[2])*0.5 * (params:get("scope_zoom") or 4) * 10, 0, 22)
         state.gonio_history[h].w = util.clamp(math.abs(args[1]-args[2])*0.5 * (params:get("scope_zoom") or 4) * 20, 0, 20)
         state.heads.gonio = (h % state.GONIO_LEN) + 1
@@ -334,19 +344,19 @@ function init()
   params:add{type = "control", id = "noise_amp", name = "Noise Level", controlspec = controlspec.new(0, 2, 'lin', 0.001, 0.0), action = function(x) set_p("noise_amp", x) end}
   params:add{type = "option", id = "noise_type", name = "Noise Type", options = {"Pink", "White", "Brown"}, action = function(x) engine.noise_type(x-1) end}
 
-  params:add_group("REVERB", 3)
+  params:add_group("TAPE VERB", 3)
   params:add{type = "control", id = "reverb_mix", name = "Reverb Mix", controlspec = controlspec.new(0, 1, 'lin', 0.001, 1.0), action = function(x) set_p("reverb_mix", x) end}
   params:add{type = "control", id = "reverb_time", name = "Reverb Decay", controlspec = controlspec.new(0.1, 60.0, 'exp', 0.1, 1.5, "s"), action = function(x) set_p("reverb_time", x) end}
   params:add{type = "control", id = "reverb_damp", name = "Reverb Damp", controlspec = controlspec.new(100, 20000, 'exp', 10, 10000, "Hz"), action = function(x) set_p("reverb_damp", x) end}
   
   params:add_group("MASTER PROCESS", 6)
-  params:add{type = "control", id = "comp_thresh", name = "Comp Thresh", controlspec = controlspec.new(-60.0, 0.0, 'lin', 0.1, -12.0, "dB"), action = function(x) set_p("comp_thresh", x) end}
+  params:add{type = "control", id = "bus_thresh", name = "Comp Thresh", controlspec = controlspec.new(-60.0, 0.0, 'lin', 0.1, -12.0, "dB"), action = function(x) set_p("bus_thresh", x) end}
   -- [FIXED] Added Formatter for Ratio (:1)
-  params:add{type = "control", id = "comp_ratio", name = "Comp Ratio", 
+  params:add{type = "control", id = "bus_ratio", name = "Comp Ratio", 
     controlspec = controlspec.new(1.0, 20.0, 'lin', 0.1, 2.0), 
     formatter = function(param) return string.format("%.1f:1", param:get()) end,
-    action = function(x) set_p("comp_ratio", x) end}
-  params:add{type = "control", id = "comp_drive", name = "Comp Drive", controlspec = controlspec.new(0.0, 24.0, 'lin', 0.1, 0.0, "dB"), action = function(x) set_p("comp_drive", x) end}
+    action = function(x) set_p("bus_ratio", x) end}
+  params:add{type = "control", id = "bus_drive", name = "Comp Drive", controlspec = controlspec.new(0.0, 24.0, 'lin', 0.1, 0.0, "dB"), action = function(x) set_p("bus_drive", x) end}
   -- [FIXED] Added update_str to bass_focus
   params:add{type = "option", id = "bass_focus", name = "Bass Focus", options = {"OFF", "50Hz", "100Hz", "200Hz"}, default = 1, action = function(x) engine.bass_focus(x-1); update_str("bass_focus") end}
   params:add{type = "control", id = "limiter_ceil", name = "Limiter Ceil", controlspec = controlspec.new(-6.0, 0.0, 'lin', 0.1, 0.0, "dB"), action = function(x) set_p("limiter_ceil", x) end}
@@ -361,7 +371,7 @@ function init()
   params:add{type = "control", id = "ping_timbre", name = "Mix (Low/High)", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) set_p("ping_timbre", x) end}
   params:add{type = "control", id = "ping_jitter", name = "Jitter (Rhythm)", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) set_p("ping_jitter", x) end}
   
-  -- [FIXED] Formatter for rate (No Hz)
+  -- [FIXED] Rate formatter (No Hz)
   params:add{type = "control", id = "ping_rate", name = "Int Rate (Hz)", controlspec = controlspec.new(0.125, 20.0, 'exp', 0.01, 1.0, "Hz"), 
     formatter = function(param) return string.format("%.2f", param:get()) end,
     action = function(x) set_p("ping_rate", x) end}
@@ -490,13 +500,14 @@ function init()
 
   Grid.init(state, g)
   
+  -- [FIXED] Grid Timer set to 15Hz to avoid USB saturation on Shield
   local screen_timer = metro.init()
   screen_timer.time = 1/30
   screen_timer.event = function() redraw() end
   screen_timer:start()
   
   local grid_timer = metro.init()
-  grid_timer.time = 1/30
+  grid_timer.time = 1/15 -- Reduced from 1/30
   grid_timer.event = function() Grid.redraw(state) end
   grid_timer:start()
   
@@ -521,7 +532,7 @@ function init()
   local visual_ids = {
      "feedback", "global_q", "system_dirt", "main_mon", "main_source", "fader_slew",
      "input_amp", "noise_amp", "noise_type", "reverb_mix", "reverb_time", "reverb_damp",
-     "comp_thresh", "comp_ratio", "comp_drive", "bass_focus", "limiter_ceil", "balance",
+     "bus_thresh", "bus_ratio", "bus_drive", "bass_focus", "limiter_ceil", "balance",
      "ping_amp", "ping_timbre", "ping_jitter", "ping_rate", "ping_div", "ping_steps", "ping_hits",
      "rm_drive", "rm_freq", "rm_mix", "rm_instability",
      "filter_mix", "pre_hpf", "pre_lpf", "stabilizer", "crossfeed", "spread", "filter_drift",
@@ -534,10 +545,14 @@ function init()
       update_str(id)
   end
   
+  -- [SAFETY] Protect against Init Crash by pcalling the loaded flag
   clock.run(function()
-     clock.sleep(0.5) 
-     state.loaded = true
-     print("Avant_lab_V: UI Loaded.")
+     local status, err = pcall(function()
+        clock.sleep(0.5) 
+        state.loaded = true
+        print("Avant_lab_V: UI Loaded.")
+     end)
+     if not status then print("Avant_lab_V: Init Error: " .. err) end
   end)
   
   for i=1,4 do
