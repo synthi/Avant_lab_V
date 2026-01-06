@@ -1,5 +1,5 @@
--- Avant_lab_V lib/grid.lua | Version 1019
--- UPDATE: Grid Row 5 Interaction for Mixer Page sync
+-- Avant_lab_V lib/grid.lua | Version 1024
+-- UPDATE: Logic Fixed for Fast Taps (Seek) vs Holds (Loop) + Debounce
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -11,19 +11,10 @@ for i=1, 16 do levels_cache[i] = {int=0, frac=0} end
 local SPEED_STEPS = {0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0}
 local VS_VALS = {-2.0, -1.5, -1.0, -0.5, -0.25, 0.0, 0.25, 0.5, 1.0, 1.5, 2.0}
 
--- Mercury LUT
-local MERCURY_LUT = {}
-local LUT_STEPS = 150
-for i=0, LUT_STEPS do
-   local dist = (i / LUT_STEPS) * 1.5
-   local intensity = 0
-   if dist < 1.5 then
-      intensity = (1.0 - (dist / 1.5)) ^ 2.3
-   end
-   MERCURY_LUT[i] = intensity
-end
+local MAX_BRIGHT = 12
+local MED_BRIGHT = 6
+local DIM_BRIGHT = 2
 
--- Virtual Buffer
 local next_frame = {}
 for x=1, 16 do next_frame[x] = {}; for y=1, 8 do next_frame[x][y] = 0 end end
 
@@ -43,7 +34,7 @@ function Grid.init(state, device)
   state.rnd_btn_val = 2
   state.rnd_btn_timer = 0
   state.freeze_clock = nil 
-  state.freeze_btn_level = 2 
+  state.freeze_btn_level = DIM_BRIGHT 
   state.grid_shift_active = false
   state.page_press_time = 0
 end
@@ -56,11 +47,11 @@ end
 
 local function draw_tape_view(state)
   local now = util.time()
-  local sel_pulse = math.floor(util.linlin(-1, 1, 13, 15, math.sin(now * 8)))
+  local sel_pulse = math.floor(util.linlin(-1, 1, 10, MAX_BRIGHT, math.sin(now * 8))) 
   local rec_pulse = math.floor(util.linlin(-1, 1, 0, 2.9, math.sin(now * 8))) 
   local dub_pulse = math.floor(util.linlin(-1, 1, 0, 2.9, math.sin(now * 4))) 
-  rec_pulse = util.clamp(rec_pulse, 0, 2)
-  dub_pulse = util.clamp(dub_pulse, 0, 2)
+  rec_pulse = util.clamp(rec_pulse, 0, DIM_BRIGHT)
+  dub_pulse = util.clamp(dub_pulse, 0, DIM_BRIGHT)
 
   for t=1, 4 do
     local track = state.tracks[t]
@@ -77,9 +68,9 @@ local function draw_tape_view(state)
     
     local head_pos = (track.play_pos or 0) * 15 + 1
     local head_max_b = 0
-    if has_audio then head_max_b = 15 
+    if has_audio then head_max_b = MAX_BRIGHT 
     elseif is_paused then head_max_b = 3 
-    elseif track.state == 1 then head_pos = 1; head_max_b = 2 end
+    elseif track.state == 1 then head_pos = 1; head_max_b = DIM_BRIGHT end
 
     for x=1, 16 do
        local b = bg_bright 
@@ -90,9 +81,7 @@ local function draw_tape_view(state)
           if dist > 8 then dist = 16 - dist end 
           
           if dist < 1.5 then
-             local lut_idx = math.floor(dist * 100)
-             lut_idx = util.clamp(lut_idx, 0, 150)
-             local intensity = MERCURY_LUT[lut_idx] or 0
+             local intensity = (1.0 - (dist / 1.5)) ^ 2.3
              local pixel_b = math.floor(head_max_b * intensity)
              b = math.max(b, pixel_b)
           end
@@ -109,10 +98,10 @@ local function draw_tape_view(state)
   
   local t = state.tracks[state.track_sel]; local s = t.speed or 1
   for i=1, 11 do
-     local val = VS_VALS[i]; local x = i + 5; local b = 2
-     if math.abs(s - val) < 0.01 then b = 15
-     elseif (s > 0 and val > 0 and s >= val) or (s < 0 and val < 0 and s <= val) then b = 6
-     elseif val == 0 and math.abs(s) < 0.01 then b = 15 end
+     local val = VS_VALS[i]; local x = i + 5; local b = DIM_BRIGHT
+     if math.abs(s - val) < 0.01 then b = MAX_BRIGHT
+     elseif (s > 0 and val > 0 and s >= val) or (s < 0 and val < 0 and s <= val) then b = MED_BRIGHT
+     elseif val == 0 and math.abs(s) < 0.01 then b = MAX_BRIGHT end
      led_buf(x, 5, b)
   end
   
@@ -120,7 +109,7 @@ local function draw_tape_view(state)
      local track_idx = math.floor((i-1)/4) + 1; local intensity_idx = (i-1)%4; local brightness = 2 + (intensity_idx * 3) 
      if state.tracks[track_idx].brake_amt and state.tracks[track_idx].brake_amt > 0 then
         local active_intensity = math.floor(state.tracks[track_idx].brake_amt * 4) - 1
-        if active_intensity == intensity_idx then brightness = 15 end
+        if active_intensity == intensity_idx then brightness = MAX_BRIGHT end
      end
      led_buf(i, 6, brightness)
   end
@@ -141,8 +130,8 @@ local function draw_main_view(state)
     local fader_h = math.floor(util.linlin(-60,0,1,6,db) + 0.5); if fader_h < 1 then fader_h = 1 end
     local sig = levels_cache[i]
     for h=1, 6 do
-       local y = 7 - h; local b_fad = (h <= fader_h) and 2 or 0; local b_sig = 0
-       if h <= sig.int then b_sig = 15 elseif h == sig.int+1 then b_sig = math.floor(sig.frac * 15) end
+       local y = 7 - h; local b_fad = (h <= fader_h) and DIM_BRIGHT or 0; local b_sig = 0
+       if h <= sig.int then b_sig = MAX_BRIGHT elseif h == sig.int+1 then b_sig = math.floor(sig.frac * MAX_BRIGHT) end
        led_buf(i, y, math.max(b_fad, b_sig))
     end
   end
@@ -177,25 +166,25 @@ function Grid.redraw(state)
 
   -- ROW 7
   local now = util.time()
-  local pulse_rec = math.floor(math.sin(now * 8) * 6 + 9) 
-  local pulse_dub = math.floor(math.sin(now * 4) * 4 + 8) 
-  local pulse_seq = math.floor(math.sin(now * 5) * 5 + 8) 
+  local pulse_rec = math.floor(math.sin(now * 8) * 4 + 7) 
+  local pulse_dub = math.floor(math.sin(now * 4) * 3 + 6) 
+  local pulse_seq = math.floor(math.sin(now * 5) * 4 + 7) 
 
   for i=1, 4 do 
      local r = rec_slots[i]; local b = 1
      if r.state == 1 then b = pulse_seq 
-     elseif r.state == 2 then b = 15 
+     elseif r.state == 2 then b = MAX_BRIGHT 
      elseif r.state == 4 then b = pulse_dub 
      elseif r.state == 3 then b = 4 end
      led_buf(i, 7, b)
   end
   
   for i=1, 4 do 
-     local x = i + 4; local st = presets_status[i]; local b = 2 
-     if st==1 then b=6 end
+     local x = i + 4; local st = presets_status[i]; local b = DIM_BRIGHT 
+     if st==1 then b=MED_BRIGHT end
      if st == 1 then
-        if preset_selected == i then b = 15 end
-        if morph_active and morph_slot == i then b = 15 end
+        if preset_selected == i then b = MAX_BRIGHT end
+        if morph_active and morph_slot == i then b = MAX_BRIGHT end
      end
      led_buf(x, 7, b)
   end
@@ -204,12 +193,12 @@ function Grid.redraw(state)
   for i=9, 12 do 
      local active = false
      local b = 1
-     if i==9 and state.fx_memory["kill"] then active = true; b = 15
+     if i==9 and state.fx_memory["kill"] then active = true; b = MAX_BRIGHT
      elseif i==10 then 
-        if state.fx_memory["freeze"] then b = state.freeze_btn_level or 2; if b < 2 then b = 2 end; active = (b > 2)
+        if state.fx_memory["freeze"] then b = state.freeze_btn_level or DIM_BRIGHT; if b < 2 then b = 2 end; active = (b > 2)
         else b = 2 end
-     elseif i==11 and state.fx_memory["warble"] then active = true; b = 15
-     elseif i==12 and state.fx_memory["brake"] then active = true; b = 15 end
+     elseif i==11 and state.fx_memory["warble"] then active = true; b = MAX_BRIGHT
+     elseif i==12 and state.fx_memory["brake"] then active = true; b = MAX_BRIGHT end
      
      if not active and i ~= 10 then 
         if i == 12 then b = 3 
@@ -229,24 +218,24 @@ function Grid.redraw(state)
   end
   
   -- ROW 8
-  led_buf(1, 8, state.grid_momentary_mode and 15 or 4)
+  led_buf(1, 8, state.grid_momentary_mode and MAX_BRIGHT or 4)
   if now - state.rnd_btn_timer > 0.8 then state.rnd_btn_val = math.random(1, 6); state.rnd_btn_timer = now end
   led_buf(2, 8, state.rnd_btn_val)
-  led_buf(3, 8, state.fx_memory["swell"] and 15 or 4)
-  led_buf(5, 8, state.ping_btn_held and 15 or 2)
+  led_buf(3, 8, state.fx_memory["swell"] and MAX_BRIGHT or 4)
+  led_buf(5, 8, state.ping_btn_held and MAX_BRIGHT or 2)
   
   for i=1, 10 do 
      local x = i + 6 
      local is_sel = (state.current_page == i)
-     local b = is_sel and 15 or 2
-     if i == 8 then if is_sel then b = 13 else b = 1 end end
+     local b = is_sel and MAX_BRIGHT or DIM_BRIGHT
+     if i == 8 then if is_sel then b = 10 else b = 1 end end
      if i == 10 then 
         local current_amp = math.max(state.amp_l or 0, state.amp_r or 0)
         local db = 20 * math.log10(current_amp > 0.0001 and current_amp or 0.0001)
-        if is_sel then local vu = util.linlin(-40, 0, 12, 15, db); b = math.floor(util.clamp(vu, 12, 15))
-        else local vu = util.linlin(-40, 0, 2, 12, db); b = math.floor(util.clamp(vu, 2, 12)) end
+        if is_sel then local vu = util.linlin(-40, 0, 10, MAX_BRIGHT, db); b = math.floor(util.clamp(vu, 10, MAX_BRIGHT))
+        else local vu = util.linlin(-40, 0, DIM_BRIGHT, 10, db); b = math.floor(util.clamp(vu, DIM_BRIGHT, 10)) end
      end
-     if state.grid_shift_active and is_sel then b = 10 end
+     if state.grid_shift_active and is_sel then b = 8 end
      led_buf(x, 8, b) 
   end
   
@@ -281,6 +270,20 @@ local function record_event(state, x, y, z, is_tape_context)
 end
 
 function Grid.key(x, y, z, state, engine, simulated_page, target_track)
+  -- [FIX] Symmetric Debounce with correct indexing
+  if not simulated_page then
+     local now = util.time()
+     if z == 1 then
+        local last = state.grid_debounce[x][y] or 0
+        if (now - last) < 0.05 then return end 
+        state.grid_debounce[x][y] = now
+        state.button_state[x][y] = true 
+     elseif z == 0 then
+        if not state.button_state[x][y] then return end 
+        state.button_state[x][y] = false 
+     end
+  end
+
   local active_page = simulated_page or state.current_page
   local is_physical = (simulated_page == nil)
   local is_tape_view = false
@@ -297,7 +300,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
   
   if is_physical then record_event(state, x, y, z, is_tape_view) end
 
-  -- === ROW 8: SYSTEM (GLOBAL) ===
+  -- === ROW 8: SYSTEM ===
   if y == 8 then
      if x >= 7 then 
         if z == 1 then 
@@ -341,21 +344,13 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
   if y == 7 then
      if state.grid_shift_active and z == 1 then
         if x <= 4 then 
-           local r = rec_slots[x]
-           r.state = 0; r.data = {}; r.step = 1; r.duration = 0
-           return
+           local r = rec_slots[x]; r.state = 0; r.data = {}; r.step = 1; r.duration = 0; return
         end
         if x >= 5 and x <= 8 then 
-           local slot = x - 4
-           presets_status[slot] = 0
-           presets_data[slot] = {}
-           if is_tape_view then state.tape_preset_selected = 0 else state.main_preset_selected = 0 end
-           return
+           local slot = x - 4; presets_status[slot] = 0; presets_data[slot] = {}
+           if is_tape_view then state.tape_preset_selected = 0 else state.main_preset_selected = 0 end; return
         end
-        if x >= 13 and x <= 16 then 
-           Loopers.clear(x - 12, state)
-           return
-        end
+        if x >= 13 and x <= 16 then Loopers.clear(x - 12, state); return end
      end
      
      if x >= 9 and x <= 12 then 
@@ -364,14 +359,10 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
            if fx_type == "kill" then state.fx_memory["kill"] = params:get("pre_lpf"); params:set("pre_lpf", 150)
            elseif fx_type == "freeze" then 
               if state.freeze_clock then clock.cancel(state.freeze_clock) end
-              if not state.fx_memory["freeze"] then
-                 state.fx_memory["freeze"] = {rev_time=params:get("reverb_time"), fb=params:get("tape_fb")}
-              end
-              params:set("tape_fb", 1.0) 
-              state.freeze_btn_level = 15 
+              if not state.fx_memory["freeze"] then state.fx_memory["freeze"] = {rev_time=params:get("reverb_time"), fb=params:get("tape_fb")} end
+              params:set("tape_fb", 1.0); state.freeze_btn_level = 15 
               state.freeze_clock = clock.run(function()
-                 local start_val = params:get("reverb_time")
-                 local target_val = 60.0; local steps = 10 
+                 local start_val = params:get("reverb_time"); local target_val = 60.0; local steps = 10 
                  for i=1, steps do
                     local val = start_val + ((target_val - start_val) * (i/steps))
                     params:set("reverb_time", val); clock.sleep(0.02)
@@ -397,7 +388,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                     state.freeze_btn_level = math.floor(util.linlin(1, steps, 15, 2, i))
                     clock.sleep(0.02)
                  end
-                 state.fx_memory["freeze"] = nil; state.freeze_btn_level = 2 
+                 state.fx_memory["freeze"] = nil; state.freeze_btn_level = DIM_BRIGHT 
               end)
            elseif fx_type == "warble" and state.fx_memory["warble"] then 
               params:set("tape_wow", state.fx_memory["warble"].w); params:set("tape_flutter", state.fx_memory["warble"].f); state.fx_memory["warble"] = nil
@@ -455,13 +446,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                 state.tape_preset_selected = slot
              else
                 local saved_gains = {}; for i=1, 16 do saved_gains[i] = state.bands_gain[i] end
-                presets_data[slot] = { 
-                    gains = saved_gains, 
-                    q = params:get("global_q"), 
-                    scale_idx = params:get("scale_idx"), 
-                    root_note = params:get("root_note"), 
-                    feedback = params:get("feedback")
-                }
+                presets_data[slot] = { gains = saved_gains, q = params:get("global_q"), scale_idx = params:get("scale_idx"), root_note = params:get("root_note"), feedback = params:get("feedback") }
                 state.main_preset_selected = slot
              end
              presets_status[slot] = 1
@@ -472,13 +457,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                 presets_data[slot] = { tracks = saved_tracks }
               else
                 local saved_gains = {}; for i=1, 16 do saved_gains[i] = state.bands_gain[i] end
-                presets_data[slot] = { 
-                    gains = saved_gains, 
-                    q = params:get("global_q"), 
-                    scale_idx = params:get("scale_idx"), 
-                    root_note = params:get("root_note"), 
-                    feedback = params:get("feedback")
-                }
+                presets_data[slot] = { gains = saved_gains, q = params:get("global_q"), scale_idx = params:get("scale_idx"), root_note = params:get("root_note"), feedback = params:get("feedback") }
               end
            else
               if is_tape_view then
@@ -518,12 +497,9 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                  state.morph_main_src = {}; for i=1,16 do state.morph_main_src[i] = state.bands_gain[i] or -60 end
                  state.morph_main_src_q = params:get("global_q")
                  state.morph_main_src_fb = params:get("feedback")
-                 
                  state.morph_main_src_freqs = {}
                  for i=1, 16 do table.insert(state.morph_main_src_freqs, params:get("freq_"..i)) end
-                 
                  state.morph_main_active = true; state.morph_main_slot = prev; state.morph_main_start_time = util.time(); state.main_preset_selected = prev 
-                 
                  local target = presets_data[prev]
                  if target and target.scale_idx then 
                     state.preview_scale_idx = target.scale_idx
@@ -596,7 +572,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
               if v then count = count + 1; if k < min_x then min_x = k end; if k > max_x then max_x = k end end 
            end
            if count == 1 then
-              if state.grid_keys_held[trk][x] then
+              if state.grid_keys_held[trk][x] then -- RESTORED ORIGINAL LOGIC BUT FIXED FOR FAST TAPS
                  if state.grid_momentary_mode then
                     state.stutter_memory[trk] = {start = state.tracks[trk].loop_start, end_ = state.tracks[trk].loop_end}
                     local center = (x-1)/15; local width = 0.05 
@@ -606,6 +582,15 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                     local pos = (x-1)/15
                     Loopers.seek(trk, pos, state)
                  end
+              else
+                 -- [FIX] If button was released quickly (debounce passed but z=0 arrived before sleep ended), count keys held is nil.
+                 -- We still want to seek if it was a single tap.
+                 -- Since we can't trust keys_held after sleep, we assume single tap seek happened on press?
+                 -- No, multi-touch logic requires wait.
+                 -- The issue on Shield is delays.
+                 -- If I remove the `if state.grid_keys_held` check, it will seek even if released.
+                 local pos = (x-1)/15
+                 Loopers.seek(trk, pos, state)
               end
            elseif count >= 2 then
               state.tracks[trk].loop_start = (min_x - 1) / 15
@@ -629,7 +614,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
   if is_tape_view and y == 5 then
      if x <= 4 and z == 1 then 
         state.track_sel = x
-        -- [NEW] Sync Mixer Page if active
         if state.current_page == 9 then
            state.mixer_sel = x
            state.grid_mixer_held = true
