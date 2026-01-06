@@ -1,5 +1,5 @@
--- Avant_lab_V lib/graphics.lua | Version 1020
--- UPDATE: Updated IDs (bus_*) for Master Page
+-- Avant_lab_V lib/graphics.lua | Version 2012
+-- UPDATE: Changed "LOAD:" to "K3:" for Scale Preview
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -27,7 +27,6 @@ end
 
 local function draw_vertical_divider() screen.level(1); screen.move(85, 10); screen.line(85, 60); screen.stroke() end
 
--- [RESTORED] Original coordinates for Pages 2-6 (Center area)
 local function draw_right_param_pair(label1, text1, label2, text2)
   local col1_x = 55 
   local col2_x = 95 
@@ -195,7 +194,6 @@ local function draw_master_view(state, shift)
    screen.level(3); screen.move(0, 53); screen.text("MONO BASS")
    screen.level(bf > 1 and 15 or 6); screen.move(0, 60); screen.text(txt_bf[bf] or "OFF")
    
-   -- [FIXED] Updated IDs to match new bus_* names
    if not shift then
       draw_right_param_pair("THRESH", get_txt("bus_thresh"), "RATIO", get_txt("bus_ratio"))
    else
@@ -284,8 +282,14 @@ function Graphics.draw(state)
      screen.clear(); screen.level(4); screen.font_size(8); screen.move(0, 8)
      local s_name = Scales.list[state.preview_scale_idx].name
      local root_txt = note_names[params:get("root_note")] or "?"
-     if s_name == state.loaded_scale_name then screen.text(s_name .. " (" .. root_txt .. ")") 
-     else screen.level(15); screen.text("LOAD: " .. s_name .. " (" .. root_txt .. ") >") end
+     
+     if s_name == state.loaded_scale_name then 
+        screen.text(s_name .. " (" .. root_txt .. ")") 
+     else 
+        screen.level(15)
+        -- [FIX v2012] Changed LOAD: to K3:
+        screen.text("K3: " .. s_name .. " >") 
+     end
      
      screen.move(128, 8); if shift then screen.level(15) else screen.level(3) end; screen.text_right(get_txt("lfo_depth"))
      screen.move(128 - screen.text_extents(get_txt("lfo_depth")) - 2, 8); screen.level(3); screen.text_right("LFO:")
