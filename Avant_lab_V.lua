@@ -1,5 +1,5 @@
--- Avant_lab_V.lua | Version 1024
--- UPDATE: Safety Init (pcall for loaded flag)
+-- Avant_lab_V.lua | Version 2013
+-- UPDATE: Screen Timer increased to 60fps, Grid Timer set to 30fps
 
 engine.name = 'Avant_lab_V'
 
@@ -226,7 +226,7 @@ function osc.event(path, args, from)
         state.heads.gonio = (h % state.GONIO_LEN) + 1
         
         for i=1, 4 do
-            local raw_pos = args[3+i]
+            local raw_pos = args[3+i] 
             local t = state.tracks[i]
             local len = t.rec_len or 0
             local buffer_ratio = 0
@@ -351,18 +351,14 @@ function init()
   
   params:add_group("MASTER PROCESS", 6)
   params:add{type = "control", id = "bus_thresh", name = "Comp Thresh", controlspec = controlspec.new(-60.0, 0.0, 'lin', 0.1, -12.0, "dB"), action = function(x) set_p("bus_thresh", x) end}
-  -- [FIXED] Added Formatter for Ratio (:1)
   params:add{type = "control", id = "bus_ratio", name = "Comp Ratio", 
     controlspec = controlspec.new(1.0, 20.0, 'lin', 0.1, 2.0), 
     formatter = function(param) return string.format("%.1f:1", param:get()) end,
     action = function(x) set_p("bus_ratio", x) end}
   params:add{type = "control", id = "bus_drive", name = "Comp Drive", controlspec = controlspec.new(0.0, 24.0, 'lin', 0.1, 0.0, "dB"), action = function(x) set_p("bus_drive", x) end}
-  -- [FIXED] Added update_str to bass_focus
   params:add{type = "option", id = "bass_focus", name = "Bass Focus", options = {"OFF", "50Hz", "100Hz", "200Hz"}, default = 1, action = function(x) engine.bass_focus(x-1); update_str("bass_focus") end}
   params:add{type = "control", id = "limiter_ceil", name = "Limiter Ceil", controlspec = controlspec.new(-6.0, 0.0, 'lin', 0.1, 0.0, "dB"), action = function(x) set_p("limiter_ceil", x) end}
   params:add{type = "control", id = "balance", name = "Master Balance", controlspec = controlspec.new(-1.0, 1.0, 'lin', 0.01, 0.0), action = function(x) set_p("balance", x) end}
-
-  params:add_separator() 
   
   params:add_group("PING GENERATOR", 10)
   params:add{type = "option", id = "ping_active", name = "Generator", options = {"Off", "On"}, default = 1, action = function(x) engine.ping_active(x-1) end}
@@ -371,12 +367,10 @@ function init()
   params:add{type = "control", id = "ping_timbre", name = "Mix (Low/High)", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) set_p("ping_timbre", x) end}
   params:add{type = "control", id = "ping_jitter", name = "Jitter (Rhythm)", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) set_p("ping_jitter", x) end}
   
-  -- [FIXED] Rate formatter (No Hz)
   params:add{type = "control", id = "ping_rate", name = "Int Rate (Hz)", controlspec = controlspec.new(0.125, 20.0, 'exp', 0.01, 1.0, "Hz"), 
     formatter = function(param) return string.format("%.2f", param:get()) end,
     action = function(x) set_p("ping_rate", x) end}
     
-  -- [FIXED] Added update_str to ping_div
   params:add{type = "option", id = "ping_div", name = "Euc Division", options = {"1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/64", "1/128", "1/256"}, default = 3, action=function() update_str("ping_div") end}
   params:add{type = "number", id = "ping_steps", name = "Euc Steps", min = 1, max = 32, default = 16, action = function(x) update_ping_pattern() end}
   params:add{type = "number", id = "ping_hits", name = "Euc Hits", min = 0, max = 32, default = 4, action = function(x) update_ping_pattern() end}
@@ -385,7 +379,6 @@ function init()
   params:add_group("RING MODULATOR", 5)
   params:add{type = "control", id = "rm_drive", name = "RM Drive", controlspec = controlspec.new(0, 24.0, 'lin', 0.1, 6.0, "dB"), action = function(x) set_p("rm_drive", x) end}
   
-  -- [FIXED] Formatter for rm_freq (No Hz, 1 dec)
   params:add{type = "control", id = "rm_freq", name = "Carrier Freq", controlspec = controlspec.new(0.1, 4000.0, 'exp', 0.1, 100.0, "Hz"), 
     formatter = function(param) return string.format("%.1f", param:get()) end,
     action = function(x) set_p("rm_freq", x) end}
@@ -397,7 +390,6 @@ function init()
   params:add_group("FILTER BANK", 7)
   params:add{type = "control", id = "filter_mix", name = "Filter Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 1.0), action = function(x) set_p("filter_mix", x) end}
   
-  -- [FIXED] Formatters for HPF/LPF (No Hz, 1 dec)
   params:add{type = "control", id = "pre_hpf", name = "Low Cut (HPF)", controlspec = controlspec.new(20, 999, 'exp', 0, 20, "Hz"), 
     formatter = function(param) return string.format("%.1f", param:get()) end,
     action = function(x) set_p("pre_hpf", x) end}
@@ -413,7 +405,6 @@ function init()
   params:add_group("LFO MODULATION", 3)
   params:add{type = "control", id = "lfo_depth", name = "Global Intensity", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), action = function(x) set_p("lfo_depth", x) end}
   
-  -- [FIXED] Formatter for lfo_rate (No Hz, 2 dec)
   params:add{type = "control", id = "lfo_rate", name = "Global Rate", controlspec = controlspec.new(0.01, 2.0, 'exp', 0.01, 0.1, "Hz"), 
     formatter = function(param) return string.format("%.2f", param:get()) end,
     action = function(x) set_p("lfo_rate", x) end}
@@ -466,7 +457,6 @@ function init()
   params:add_group("BANDS SETUP", 34) 
   local scale_options = {"Default"}
   if Scales and Scales.names then scale_options = Scales.names end
-  -- [FIXED] Added update_str to scale params
   params:add{type = "option", id = "scale_idx", name = "Scale Type", options = scale_options, default = 1, action = function(x) load_scale(x); state.preview_scale_idx = x; update_str("scale_idx") end}
   params:add{type = "option", id = "root_note", name = "Scale Root", options = {"C","C#","D","D#","E","F","F#","G","G#","A","A#","B"}, default = 1, action = function(x) load_scale(params:get("scale_idx")); update_str("root_note") end}
   
@@ -496,18 +486,17 @@ function init()
   params:add{type = "file", id = "load_reel_3", name = "Load Reel 3", path = _path.audio, action = function(f) Loopers.load_file(3, f, state) end}
   params:add{type = "file", id = "load_reel_4", name = "Load Reel 4", path = _path.audio, action = function(f) Loopers.load_file(4, f, state) end}
   
-  params:add_separator("END OF AVANT_LAB_V")
-
   Grid.init(state, g)
   
-  -- [FIXED] Grid Timer set to 15Hz to avoid USB saturation on Shield
+  -- [FIX v2013] Screen Timer @ 60Hz
   local screen_timer = metro.init()
-  screen_timer.time = 1/30
+  screen_timer.time = 1/60
   screen_timer.event = function() redraw() end
   screen_timer:start()
   
+  -- [FIX v2013] Grid Timer @ 30Hz
   local grid_timer = metro.init()
-  grid_timer.time = 1/15 -- Reduced from 1/30
+  grid_timer.time = 1/30
   grid_timer.event = function() Grid.redraw(state) end
   grid_timer:start()
   
@@ -528,7 +517,6 @@ function init()
   update_ping_pattern()
   params:bang()
   
-  -- [FIXED] Force update string cache for ALL visual parameters on init
   local visual_ids = {
      "feedback", "global_q", "system_dirt", "main_mon", "main_source", "fader_slew",
      "input_amp", "noise_amp", "noise_type", "reverb_mix", "reverb_time", "reverb_damp",
@@ -545,7 +533,6 @@ function init()
       update_str(id)
   end
   
-  -- [SAFETY] Protect against Init Crash by pcalling the loaded flag
   clock.run(function()
      local status, err = pcall(function()
         clock.sleep(0.5) 
