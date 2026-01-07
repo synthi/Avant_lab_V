@@ -1,5 +1,5 @@
--- Avant_lab_V lib/graphics.lua | Version 2012
--- UPDATE: Changed "LOAD:" to "K3:" for Scale Preview
+-- Avant_lab_V lib/graphics.lua | Version 2018
+-- UPDATE: High Persistence Visuals, Gonio Clipping, Shift Display Fix
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -15,7 +15,6 @@ local linlin = util.linlin
 local divs_names = {"1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/64", "1/128", "1/256"}
 local note_names = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"}
 
--- [OPTIMIZATION] Helper to retrieve from cache safely
 local function get_txt(id) return state.str_cache[id] or "..." end
 
 local function draw_header_right(label) screen.level(15); screen.move(128, 8); screen.text_right(label) end
@@ -41,16 +40,20 @@ local function draw_right_param_pair(label1, text1, label2, text2)
 end
 
 local function draw_goniometer_block(state)
-  local cx = 106; local cy = 25
+  local cx = 106
+  local cy = 29
   local head = state.heads.gonio
   local len = state.GONIO_LEN
   local hist = state.gonio_history
-  
+  local min_x, max_x = 86, 127
+  local min_y, max_y = 12, 50
+
   for i=0, len-1 do
      local idx = (head - 1 - i - 1) % len + 1
      local frame = hist[idx]
-     if frame and frame.s > 0.5 then
-        local brightness = math.floor(15 / (i * 0.5 + 1))
+     if frame and frame.s > 0.1 then
+        local brightness = math.floor(15 / (i * 0.25 + 1))
+        
         if brightness > 1 then
            screen.level(brightness)
            local s = frame.s
@@ -61,7 +64,9 @@ local function draw_goniometer_block(state)
                local rad = random() * s
                local px = cx + (cos(ang) * rad) + ((random()-0.5)*2 * w)
                local py = cy + (sin(ang) * rad * 1.4)
-               screen.pixel(px, py); screen.fill()
+               if px > min_x and px < max_x and py > min_y and py < max_y then
+                  screen.pixel(px, py); screen.fill()
+               end
            end
         end
      end
@@ -101,7 +106,6 @@ local function draw_mixer_view(state, shift)
   local sel = state.mixer_sel
   local t = state.tracks[sel]
   
-  -- Interaction via Grid Hold
   if state.grid_mixer_held then shift = true end
   
   screen.level(4); screen.move(64, 8); screen.text_center("SITRAL MIXER")
@@ -205,7 +209,8 @@ end
 
 function Graphics.draw(state)
   local page = state.current_page
-  local shift = state.k1_held or state.mod_shift_16 or state.grid_shift_active
+  -- [FIX v2018] Added grid_track_held to visual shift logic
+  local shift = state.k1_held or state.mod_shift_16 or state.grid_shift_active or state.grid_track_held
   local amp_l = state.amp_l or 0
   local now = util.time()
   
@@ -334,7 +339,7 @@ function Graphics.draw(state)
     else draw_left_e1("STAB", get_txt("stabilizer")); draw_right_param_pair("DRIFT", get_txt("filter_drift"), "SPR", get_txt("spread")) end
     local area_w = 84; local cy = 15 + (45 / 2) - 4 
     
-    local h = state.heads.filter; local len = state.FILTER_LEN
+    local h = state.heads.filter; local len = state.FILTER_LEN -- Use globals
     local total_energy = 0; for i=1,16 do total_energy = total_energy + (state.band_levels[i] or 0) end
     anim_phase_osc = (anim_phase_osc or 0) + 0.1
     state.filter_history[h].amp = clamp(total_energy * 20, 2, 18)
@@ -344,7 +349,7 @@ function Graphics.draw(state)
     for t=0, len-1 do
        local idx = (h - 1 - t - 1) % len + 1
        local frame = state.filter_history[idx]
-       local brightness = floor(10 / (t+1))
+       local brightness = floor(10 / (t * 0.5 + 1)) -- Slower Fade
        if brightness > 0 then
          screen.level(brightness)
          for i = 0, area_w, 2 do
@@ -415,7 +420,8 @@ function Graphics.draw(state)
       else
         local radius = k * 35; local jitter = (p.jitter or 0) * 4
         local pcx = cx + (random() - 0.5) * 2 * jitter; local pcy = cy + (random() - 0.5) * 2 * jitter 
-        local b = floor(clamp(linlin(0,1,10,5, p.amp or 0.7) * (1-k) + 4, 6, 15))
+        -- [FIX v2014] Ping Persistence: Slower fade (10 + ...) to keep bright longer
+        local b = floor(clamp(linlin(0,1,12,6, p.amp or 0.7) * (1-k) + 4, 6, 15))
         screen.level(b); for a = 0, 6.28, 0.25 do local r = radius + pulse_r + (sin(a * 4 + (p.phase_off or 0)) * radius * 0.2); screen.pixel(pcx + cos(a)*r, pcy + sin(a)*r) end
         screen.fill()
       end
@@ -435,7 +441,7 @@ function Graphics.draw(state)
     local cx = 84 * 0.4; local cy = 15 + 45/2
     anim_phase_time = (anim_phase_time or 0) + ((params:get("seq_rate"..suffix) or 0) * 0.2) 
     
-    local h = state.heads.time; local len = state.FILTER_LEN
+    local h = state.heads.time; local len = state.FILTER_LEN -- Using global constant
     state.time_history[h].ph = anim_phase_time
     state.time_history[h].r = 12 + (amp_l * 15)
     state.time_history[h].m = params:get("preset_morph"..suffix) or 0
@@ -444,7 +450,9 @@ function Graphics.draw(state)
     for i=0, len-1 do
        local idx = (h - 1 - i - 1) % len + 1
        local frame = state.time_history[idx]
-       local brightness = floor(10/(i+1))
+       -- [FIX v2014] Exaggerated Persistence: Slower fade (divide by less) + Minimum brightness floor
+       local brightness = floor(15 / (i * 0.15 + 1)) 
+       if brightness < 2 then brightness = 2 end -- Min Brightness Floor "Always Alive"
        screen.level(brightness)
        for t = 0, 6.28, 0.1 do
          local r = frame.r + cos(t * (2 + floor(frame.m*2))) * (frame.m * 3)
