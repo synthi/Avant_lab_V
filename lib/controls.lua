@@ -1,5 +1,5 @@
--- Avant_lab_V lib/controls.lua | Version 2013
--- UPDATE: K2 Smart Logic (Cancel Preview vs Feedback Kill)
+-- Avant_lab_V lib/controls.lua | Version 2019
+-- UPDATE: Page 7 Loopers now includes Degrade on Shift+E1
 
 local Controls = {}
 local fileselect = require 'fileselect'
@@ -25,12 +25,9 @@ Pages[1] = {
    end,
    key = function(n, z, s)
       if n==2 then
-         -- [FIX v2013] K2 Smart Logic
          if z==1 then
              local current_preview_name = Scales.list[s.preview_scale_idx].name
              if current_preview_name ~= s.loaded_scale_name then
-                -- MODE A: CANCEL PREVIEW
-                -- Revert preview index to match the currently loaded scale
                 for i, sc in ipairs(Scales.list) do
                    if sc.name == s.loaded_scale_name then
                       s.preview_scale_idx = i
@@ -38,13 +35,11 @@ Pages[1] = {
                    end
                 end
              else
-                -- MODE B: FEEDBACK KILL (Momentary)
                 s.saved_fb = params:get("feedback")
                 params:set("feedback", 0)
                 s.k2_kill_active = true
              end
          elseif z==0 then
-             -- Only restore feedback if we were in Kill Mode
              if s.k2_kill_active then
                 params:set("feedback", s.saved_fb)
                 s.k2_kill_active = false
@@ -178,8 +173,9 @@ Pages[6] = {
 -- PAGE 7 (LOOPERS)
 Pages[7] = {
    enc = function(n, d, s)
-      if (s.k1_held or s.mod_shift_16 or s.grid_shift_active) then
-         if n==1 then Loopers.delta_param("rec_level", d, s)
+      -- [FIX v2019] Added Degrade (wow_macro) to Shift E1
+      if (s.k1_held or s.mod_shift_16 or s.grid_shift_active or s.grid_track_held) then
+         if n==1 then Loopers.delta_param("wow", d, s) -- Degrade mapped here
          elseif n==2 then Loopers.delta_param("start", d, s)
          elseif n==3 then Loopers.delta_param("end", d, s) end
       else
@@ -226,7 +222,7 @@ Pages[9] = {
    enc = function(n, d, s)
       local trk = s.mixer_sel
       local t = s.tracks[trk]
-      if not (s.k1_held or s.mod_shift_16 or s.grid_shift_active) then
+      if not (s.k1_held or s.mod_shift_16 or s.grid_shift_active or s.grid_track_held) then
          if n==1 then t.vol = util.clamp(t.vol + d*0.01, 0, 1); Loopers.refresh(trk, s)
          elseif n==2 then t.l_low = util.clamp(t.l_low + d*0.1, -18, 18); Loopers.refresh(trk, s)
          elseif n==3 then t.l_high = util.clamp(t.l_high + d*0.1, -18, 18); Loopers.refresh(trk, s) end
@@ -249,12 +245,12 @@ Pages[10] = {
    enc = function(n, d, s)
       if not (s.k1_held or s.mod_shift_16 or s.grid_shift_active) then
          if n==1 then params:delta("main_mon", d*0.5)
-         elseif n==2 then params:delta("comp_thresh", d)
-         elseif n==3 then params:delta("comp_ratio", d) end
+         elseif n==2 then params:delta("bus_thresh", d)
+         elseif n==3 then params:delta("bus_ratio", d) end
       else
          if n==1 then params:delta("limiter_ceil", d)
          elseif n==2 then params:delta("balance", d)
-         elseif n==3 then params:delta("comp_drive", d) end
+         elseif n==3 then params:delta("bus_drive", d) end
       end
    end,
    key = function(n, z, s)
@@ -266,7 +262,7 @@ Pages[10] = {
 }
 
 function Controls.enc(n, d, state)
-   if n == 4 then -- Should not happen on standard Norns, but safe to keep
+   if n == 4 then 
       if state.k1_held or state.mod_shift_16 or state.grid_shift_active then Loopers.delta_param("wow", d, state)
       else params:delta("feedback", d) end
       return
