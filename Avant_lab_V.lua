@@ -1,5 +1,5 @@
--- Avant_lab_V.lua | Version 2013
--- UPDATE: Screen Timer increased to 60fps, Grid Timer set to 30fps
+-- Avant_lab_V.lua | Version 2019
+-- UPDATE: Rec Level Action fix + Full Restore of Params
 
 engine.name = 'Avant_lab_V'
 
@@ -29,7 +29,6 @@ end
 
 -- [HELPER] Wrapper for param actions to update cache
 local function set_p(id, val)
-    -- Map new Lua IDs to Engine commands if names differ
     local eng_cmd = id
     if id == "bus_thresh" then eng_cmd = "comp_thresh"
     elseif id == "bus_ratio" then eng_cmd = "comp_ratio"
@@ -49,14 +48,24 @@ function get_current_freqs()
 end
 
 function update_ping_pattern()
-  local k = params:get("ping_hits"); local n = params:get("ping_steps")
+  local k = params:get("ping_hits")
+  local n = params:get("ping_steps")
+  
   state.ping_pattern = {}
+  
   if n > 0 then
      local slope = k / n
-     for i=0, n-1 do table.insert(state.ping_pattern, (math.floor(i * slope) ~= math.floor((i+1) * slope))) end
-  else state.ping_pattern = {false} end
-  state.str_cache["ping_steps"] = tostring(n)
-  state.str_cache["ping_hits"] = tostring(k)
+     for i=0, n-1 do 
+         local is_hit = (math.floor(i * slope) ~= math.floor((i+1) * slope))
+         table.insert(state.ping_pattern, is_hit) 
+     end
+  else 
+     state.ping_pattern = {false} 
+  end
+  
+  state.ping_step_counter = 0
+  update_str("ping_steps")
+  update_str("ping_hits")
 end
 
 function load_scale(idx)
@@ -220,7 +229,6 @@ function osc.event(path, args, from)
         state.comp_gr = args[3]
         
         local h = state.heads.gonio
-        -- Use scope_zoom safely (now guaranteed to exist)
         state.gonio_history[h].s = util.clamp((args[1]+args[2])*0.5 * (params:get("scope_zoom") or 4) * 10, 0, 22)
         state.gonio_history[h].w = util.clamp(math.abs(args[1]-args[2])*0.5 * (params:get("scope_zoom") or 4) * 20, 0, 20)
         state.heads.gonio = (h % state.GONIO_LEN) + 1
@@ -239,7 +247,12 @@ function osc.event(path, args, from)
             end
         end
         
-        for i=1, 16 do state.band_levels[i] = args[7+i] end
+        local smooth_factor = 0.25
+        for i=1, 16 do 
+            local target = args[7+i]
+            local current = state.band_levels[i] or 0
+            state.band_levels[i] = current + ((target - current) * smooth_factor)
+        end
     end
   end
 end
@@ -251,8 +264,8 @@ g.key = function(x, y, z) Grid.key(x, y, z, state, engine) end
 function ping_tick()
   while true do
     local mode = params:get("ping_mode")
-    if mode == 2 and (params:get("ping_active") == 2) and params:get("ping_steps") > 0 then
-      state.ping_step_counter = (state.ping_step_counter or 0) % params:get("ping_steps") + 1
+    if mode == 2 and (params:get("ping_active") == 2) and params:get("ping_steps") > 0 and state.ping_pattern and #state.ping_pattern > 0 then
+      state.ping_step_counter = (state.ping_step_counter % params:get("ping_steps")) + 1
       if state.ping_pattern[state.ping_step_counter] then engine.ping_sequence(1) end
     end
     clock.sync(DIV_VALUES[params:get("ping_div") or 3])
@@ -441,7 +454,8 @@ function init()
         id = "l"..i.."_rec_lvl", 
         name = "Input Level", 
         controlspec = controlspec.new(-60, 12, 'lin', 0.1, 0, "dB"), 
-        action = function(x) state.tracks[i].rec_level = x end
+        -- [FIX v2019] Added Loopers.refresh to update engine in real-time
+        action = function(x) state.tracks[i].rec_level = x; Loopers.refresh(i, state) end
     }
     
     params:add{type = "control", id = "l"..i.."_aux", name = "Aux Send", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), action = function(x) state.tracks[i].aux_send = x; Loopers.refresh(i, state) end}
@@ -488,13 +502,11 @@ function init()
   
   Grid.init(state, g)
   
-  -- [FIX v2013] Screen Timer @ 60Hz
   local screen_timer = metro.init()
   screen_timer.time = 1/60
   screen_timer.event = function() redraw() end
   screen_timer:start()
   
-  -- [FIX v2013] Grid Timer @ 30Hz
   local grid_timer = metro.init()
   grid_timer.time = 1/30
   grid_timer.event = function() Grid.redraw(state) end
