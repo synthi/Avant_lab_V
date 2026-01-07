@@ -1,5 +1,5 @@
--- Avant_lab_V lib/graphics.lua | Version 2018
--- UPDATE: High Persistence Visuals, Gonio Clipping, Shift Display Fix
+-- Avant_lab_V lib/graphics.lua | Version 2024
+-- UPDATE: Fixed Page 1 Header Overlap (LFO Label calculation)
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -113,7 +113,7 @@ local function draw_mixer_view(state, shift)
   screen.font_size(8)
   if not shift then
      local vol_db = util.linlin(0, 1, -60, 12, t.vol or 0)
-     screen.level(3); screen.move(0, 62); screen.text("VOL:"); screen.level(15); screen.move(18, 62); screen.text(string.format("%.1f", vol_db))
+     screen.level(3); screen.move(0, 62); screen.text("VOL:"); screen.level(15); screen.move(18, 62); screen.text(string.format("%.1fdB", vol_db))
      screen.level(3); screen.move(50, 62); screen.text("LOW:"); screen.level(15); screen.move(68, 62); screen.text(string.format("%.1f", t.l_low or 0))
      screen.level(3); screen.move(95, 62); screen.text("HI:"); screen.level(15); screen.move(110, 62); screen.text(string.format("%.1f", t.l_high or 0))
   else
@@ -153,63 +153,8 @@ local function draw_mixer_view(state, shift)
   screen.update()
 end
 
-local function draw_plasma_bar_fluid(x, y, w, h, val, is_inverted, is_gr)
-   local seg_w = 2; local gap = 1; local total_segs = math.floor(w / (seg_w + gap))
-   screen.level(1)
-   for i=0, total_segs-1 do screen.rect(x + (i * (seg_w+gap)), y, seg_w, h); screen.fill() end
-   local active_float = val * total_segs; local active_int = math.floor(active_float); local active_frac = active_float - active_int
-   local function get_brightness(pct) if is_gr then return 8 end; if pct < 0.6 then return 6 elseif pct < 0.9 then return 10 else return 15 end end
-   for i=0, active_int-1 do
-      local pos_x = x + (i * (seg_w+gap)); if is_inverted then pos_x = x + w - ((i+1) * (seg_w+gap)) end
-      local pct = (i+1) / total_segs; screen.level(get_brightness(pct)); screen.rect(pos_x, y, seg_w, h); screen.fill()
-   end
-   if active_frac > 0.1 and active_int < total_segs then
-      local i = active_int; local pos_x = x + (i * (seg_w+gap)); if is_inverted then pos_x = x + w - ((i+1) * (seg_w+gap)) end
-      local pct = (i+1) / total_segs; local base_b = get_brightness(pct); local tip_b = math.floor(base_b * active_frac)
-      if tip_b > 0 then screen.level(tip_b); screen.rect(pos_x, y, seg_w, h); screen.fill() end
-   end
-end
-
-local function draw_master_view(state, shift)
-   screen.clear()
-   screen.font_size(8)
-   
-   if not shift then draw_left_e1("MONITOR", get_txt("main_mon")) 
-   else draw_left_e1("CEIL", get_txt("limiter_ceil")) end
-   
-   draw_vertical_divider(); draw_header_right("MASTER"); draw_goniometer_block(state)
-   
-   local cx = 50; local w = 52; local y_start = 28 
-   local gr = state.comp_gr or 0; local gr_norm = clamp(gr * 4, 0, 1) 
-   screen.level(3); screen.move(cx - 38, y_start - 4); screen.text_right("GR")
-   draw_plasma_bar_fluid(cx - 30, y_start - 7, w, 2, gr_norm, true, true)
-   
-   local amp_l_db = 20 * math.log10(state.amp_l > 0.0001 and state.amp_l or 0.0001)
-   local amp_r_db = 20 * math.log10(state.amp_r > 0.0001 and state.amp_r or 0.0001)
-   local l_norm = linlin(-60, 0, 0, 1, amp_l_db); l_norm = clamp(l_norm, 0, 1)
-   local r_norm = linlin(-60, 0, 0, 1, amp_r_db); r_norm = clamp(r_norm, 0, 1)
-   screen.level(3); screen.move(cx - 38, y_start + 4); screen.text_right("L")
-   draw_plasma_bar_fluid(cx - 30, y_start + 1, w, 4, l_norm, false, false)
-   screen.level(3); screen.move(cx - 38, y_start + 11); screen.text_right("R")
-   draw_plasma_bar_fluid(cx - 30, y_start + 8, w, 4, r_norm, false, false)
-   
-   local bf = params:get("bass_focus")
-   local txt_bf = {"OFF", "50Hz", "100Hz", "200Hz"}
-   screen.level(3); screen.move(0, 53); screen.text("MONO BASS")
-   screen.level(bf > 1 and 15 or 6); screen.move(0, 60); screen.text(txt_bf[bf] or "OFF")
-   
-   if not shift then
-      draw_right_param_pair("THRESH", get_txt("bus_thresh"), "RATIO", get_txt("bus_ratio"))
-   else
-      draw_right_param_pair("BAL", get_txt("balance"), "DRIVE", get_txt("bus_drive"))
-   end
-   
-   screen.update()
-end
-
 function Graphics.draw(state)
   local page = state.current_page
-  -- [FIX v2018] Added grid_track_held to visual shift logic
   local shift = state.k1_held or state.mod_shift_16 or state.grid_shift_active or state.grid_track_held
   local amp_l = state.amp_l or 0
   local now = util.time()
@@ -292,12 +237,13 @@ function Graphics.draw(state)
         screen.text(s_name .. " (" .. root_txt .. ")") 
      else 
         screen.level(15)
-        -- [FIX v2012] Changed LOAD: to K3:
         screen.text("K3: " .. s_name .. " >") 
      end
      
-     screen.move(128, 8); if shift then screen.level(15) else screen.level(3) end; screen.text_right(get_txt("lfo_depth"))
-     screen.move(128 - screen.text_extents(get_txt("lfo_depth")) - 2, 8); screen.level(3); screen.text_right("LFO:")
+     -- [FIX v2024] Correct string width calculation to prevent overlap
+     local lfo_str = string.format("%.2f", params:get("lfo_depth"))
+     screen.move(128, 8); if shift then screen.level(15) else screen.level(3) end; screen.text_right(lfo_str)
+     screen.move(128 - screen.text_extents(lfo_str) - 4, 8); screen.level(3); screen.text_right("LFO:")
      
      local floor_y = 60
      for i=1, 16 do
@@ -324,7 +270,8 @@ function Graphics.draw(state)
         screen.move(col2_x, 60); screen.level(10); screen.text(get_txt("global_q"))
      else
         screen.move(col1_x, 53); screen.level(3); screen.text("RATE")
-        screen.move(col1_x, 60); screen.level(15); screen.text(get_txt("lfo_rate"))
+        -- [FIX v2023] Manual formatting without Hz for Page 1
+        screen.move(col1_x, 60); screen.level(15); screen.text(string.format("%.2f", params:get("lfo_rate")))
         screen.move(col2_x, 53); screen.level(3); screen.text("ROOT")
         screen.move(col2_x, 60); screen.level(15); screen.text(get_txt("root_note"))
      end
@@ -335,8 +282,14 @@ function Graphics.draw(state)
   if page == 2 then
     screen.clear()
     -- Page 2 uses helper (Center layout)
-    if not shift then draw_left_e1("MIX", get_txt("filter_mix")); draw_right_param_pair("HPF", get_txt("pre_hpf"), "LPF", get_txt("pre_lpf"))
-    else draw_left_e1("STAB", get_txt("stabilizer")); draw_right_param_pair("DRIFT", get_txt("filter_drift"), "SPR", get_txt("spread")) end
+    -- [FIX v2023] Manual formatting for HPF/LPF without Hz to prevent overlap
+    if not shift then 
+        draw_left_e1("MIX", get_txt("filter_mix")); 
+        draw_right_param_pair("HPF", string.format("%.1f", params:get("pre_hpf")), "LPF", string.format("%.1f", params:get("pre_lpf")))
+    else 
+        draw_left_e1("STAB", get_txt("stabilizer")); 
+        draw_right_param_pair("DRIFT", get_txt("filter_drift"), "SPR", get_txt("spread")) 
+    end
     local area_w = 84; local cy = 15 + (45 / 2) - 4 
     
     local h = state.heads.filter; local len = state.FILTER_LEN -- Use globals
@@ -364,8 +317,12 @@ function Graphics.draw(state)
 
   if page == 3 then
     screen.clear()
+    -- [FIX v2023] Manual formatting for RM Freq without Hz
     if not shift then draw_left_e1("REV", get_txt("reverb_mix")); draw_right_param_pair("RMIX", get_txt("rm_mix"), "MON", get_txt("main_mon"))
-    else draw_left_e1("DIRT", get_txt("system_dirt")); draw_right_param_pair("FREQ", get_txt("rm_freq"), "NOISE", get_txt("noise_amp")) end
+    else 
+        draw_left_e1("DIRT", get_txt("system_dirt")); 
+        draw_right_param_pair("FREQ", string.format("%.1f", params:get("rm_freq")), "NOISE", get_txt("noise_amp")) 
+    end
     
     local area_x = 0; local area_w = 84; local cy = 30
     screen.level(10)

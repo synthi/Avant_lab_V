@@ -1,5 +1,5 @@
--- Avant_lab_V lib/globals.lua | Version 2015
--- UPDATE: Added grid_track_held state for Shift functionality
+-- Avant_lab_V lib/globals.lua | Version 2021
+-- UPDATE: Clean Build (Removed rnd_pool)
 
 local Globals = {}
 
@@ -15,6 +15,7 @@ function Globals.new()
   s.grid_memory = {}
   s.grid_cache = {} 
   
+  -- Debounce & Input State
   s.grid_debounce = {}
   s.button_state = {}
   
@@ -30,8 +31,8 @@ function Globals.new()
      end
   end
 
-  s.GONIO_LEN = 80
-  s.FILTER_LEN = 60
+  s.GONIO_LEN = 80;
+  s.FILTER_LEN = 60;
   
   s.gonio_history = {}; for i=1, s.GONIO_LEN do s.gonio_history[i] = {s=0, w=0} end
   s.filter_history = {}; for i=1, s.FILTER_LEN do s.filter_history[i] = {amp=0, phase=0} end
@@ -45,8 +46,8 @@ function Globals.new()
   s.k2_held_tape = false
   s.time_page_focus = "MAIN"
   s.ping_btn_held = false
-  s.grid_mixer_held = false -- Legacy hold, keeping for safety
-  s.grid_track_held = false -- [FIX v2015] New shift modifier for Row 5
+  s.grid_mixer_held = false
+  s.grid_track_held = false
   s.k2_kill_active = false
   
   s.tape_library_sel = 1
@@ -84,9 +85,9 @@ function Globals.new()
   s.grid_tape_view_override = false
 
   s.saved_fb = 0; s.saved_tape_fb = 0; s.saved_fmix = 1.0
-  s.ping_pattern = {false}; s.ping_pulses = {}; s.rate_offset = 0; s.ping_step_counter = 0
+  s.ping_pattern = {}; s.ping_pulses = {}; s.rate_offset = 0; s.ping_step_counter = 0
   s.loaded_scale_name = "Bark"; s.preview_scale_idx = 1
-  s.rnd_pool = {}; for i=1, 256 do s.rnd_pool[i] = math.random() end
+  -- [FIX v2021] Removed unused rnd_pool
   
   return s
 end

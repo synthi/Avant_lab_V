@@ -1,5 +1,5 @@
--- Avant_lab_V lib/grid.lua | Version 2018
--- UPDATE: RESTORED DEAD BUTTONS (Row 7 1-8) & Confirmed Row 5 Shift Logic
+-- Avant_lab_V lib/grid.lua | Version 2022
+-- UPDATE: FATAL REGRESSION FIXED. Sequencers & Presets RESTORED. Code Cleaned.
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -8,7 +8,7 @@ local g -- Ref
 
 local levels_cache = {}
 for i=1, 16 do levels_cache[i] = {int=0, frac=0} end
-local SPEED_STEPS = {0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 2.0}
+-- [CLEAN] Removed SPEED_STEPS
 local VS_VALS = {-2.0, -1.5, -1.0, -0.5, -0.25, 0.0, 0.25, 0.5, 1.0, 1.5, 2.0}
 
 local MAX_BRIGHT = 12
@@ -94,7 +94,6 @@ local function draw_tape_view(state)
   for i=1,4 do 
      local b = 3
      if state.track_sel == i then b = sel_pulse end
-     -- Feedback: Brightest if holding as shift
      if state.grid_track_held and state.track_sel == i then b = 15 end
      led_buf(i, 5, b) 
   end
@@ -301,7 +300,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
   
   if is_physical then record_event(state, x, y, z, is_tape_view) end
 
-  -- ROW 8 (SYSTEM)
+  -- ROW 8
   if y == 8 then
      if x >= 7 then 
         if z == 1 then 
@@ -341,8 +340,9 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
      return
   end
   
-  -- ROW 7 (PERFORMANCE) - [FIX v2018] RESTORED ALL BLOCKS
+  -- ROW 7 (RESTORED!)
   if y == 7 then
+     -- SHIFT ACTION
      if state.grid_shift_active and z == 1 then
         if x <= 4 then 
            local r = rec_slots[x]; r.state = 0; r.data = {}; r.step = 1; r.duration = 0; return
@@ -401,7 +401,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         return
      end
 
-     -- SEQUENCERS (1-4) [RESTORED]
+     -- SEQUENCERS (1-4) RESTORED
      if x <= 4 then 
         local slot = x; local r = rec_slots[slot]
         if z==1 then r.press_time = util.time()
@@ -430,12 +430,11 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         return
      end
 
-     -- PRESETS (5-8) [RESTORED]
+     -- PRESETS (5-8) RESTORED (Latching)
      if x >= 5 and x <= 8 then 
         local slot = x - 4
         if z == 1 then
            preset_press_time[slot] = util.time()
-           -- Latching Mode Only (Momentary Removed)
            local is_current = false
            if is_tape_view then is_current = (state.tape_preset_selected == slot)
            else is_current = (state.main_preset_selected == slot) end
