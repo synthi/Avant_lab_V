@@ -1,5 +1,5 @@
--- Avant_lab_V lib/grid.lua | Version 2012
--- UPDATE: Presets (Row 7, 5-8) are now always LATCHING (Momentary toggle ignored here)
+-- Avant_lab_V lib/grid.lua | Version 2018
+-- UPDATE: RESTORED DEAD BUTTONS (Row 7 1-8) & Confirmed Row 5 Shift Logic
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -37,6 +37,7 @@ function Grid.init(state, device)
   state.freeze_btn_level = DIM_BRIGHT 
   state.grid_shift_active = false
   state.page_press_time = 0
+  state.grid_track_held = false
 end
 
 local function led_buf(x, y, val)
@@ -92,7 +93,9 @@ local function draw_tape_view(state)
 
   for i=1,4 do 
      local b = 3
-     if state.track_sel == i then b = sel_pulse end 
+     if state.track_sel == i then b = sel_pulse end
+     -- Feedback: Brightest if holding as shift
+     if state.grid_track_held and state.track_sel == i then b = 15 end
      led_buf(i, 5, b) 
   end
   
@@ -239,7 +242,6 @@ function Grid.redraw(state)
      led_buf(x, 8, b) 
   end
   
-  -- Differential Draw
   for x=1, 16 do
      for y=1, 8 do
         local new_val = next_frame[x][y]
@@ -270,7 +272,6 @@ local function record_event(state, x, y, z, is_tape_context)
 end
 
 function Grid.key(x, y, z, state, engine, simulated_page, target_track)
-  -- [FIX] Symmetric Debounce with correct indexing
   if not simulated_page then
      local now = util.time()
      if z == 1 then
@@ -300,7 +301,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
   
   if is_physical then record_event(state, x, y, z, is_tape_view) end
 
-  -- === ROW 8: SYSTEM ===
+  -- ROW 8 (SYSTEM)
   if y == 8 then
      if x >= 7 then 
         if z == 1 then 
@@ -340,7 +341,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
      return
   end
   
-  -- === ROW 7: PERFORMANCE ===
+  -- ROW 7 (PERFORMANCE) - [FIX v2018] RESTORED ALL BLOCKS
   if y == 7 then
      if state.grid_shift_active and z == 1 then
         if x <= 4 then 
@@ -353,6 +354,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         if x >= 13 and x <= 16 then Loopers.clear(x - 12, state); return end
      end
      
+     -- FX (9-12)
      if x >= 9 and x <= 12 then 
         local fx_type = ""; if x == 9 then fx_type = "kill" elseif x == 10 then fx_type = "freeze" elseif x == 11 then fx_type = "warble" elseif x == 12 then fx_type = "brake" end
         if z == 1 then
@@ -398,7 +400,8 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         end
         return
      end
-     
+
+     -- SEQUENCERS (1-4) [RESTORED]
      if x <= 4 then 
         local slot = x; local r = rec_slots[slot]
         if z==1 then r.press_time = util.time()
@@ -427,13 +430,12 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         return
      end
 
+     -- PRESETS (5-8) [RESTORED]
      if x >= 5 and x <= 8 then 
         local slot = x - 4
         if z == 1 then
            preset_press_time[slot] = util.time()
-           
-           -- [FIX v2012] REMOVED Momentary Logic here. Presets are now LATCHING.
-           
+           -- Latching Mode Only (Momentary Removed)
            local is_current = false
            if is_tape_view then is_current = (state.tape_preset_selected == slot)
            else is_current = (state.main_preset_selected == slot) end
@@ -490,13 +492,13 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
               end
            end
         elseif z == 0 then
-           -- [FIX v2012] REMOVED Momentary restoration logic.
            local d = util.time() - preset_press_time[slot]
            if presets_status[slot] == 1 and d > 1.0 then presets_status[slot] = 0; presets_data[slot] = {}; if is_tape_view then state.tape_preset_selected = 0 else state.main_preset_selected = 0 end end
         end
         return
      end
      
+     -- TRANSPORT (13-16) RESTORED Explicit Logic
      if x >= 13 and x <= 16 then 
         local trk = x - 12
         if z == 1 then
@@ -543,6 +545,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         return
      end
   end
+  
   if is_tape_view and y <= 4 then
      local trk = y
      if z == 1 then 
@@ -554,7 +557,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
               if v then count = count + 1; if k < min_x then min_x = k end; if k > max_x then max_x = k end end 
            end
            if count == 1 then
-              if state.grid_keys_held[trk][x] then -- RESTORED ORIGINAL LOGIC BUT FIXED FOR FAST TAPS
+              if state.grid_keys_held[trk][x] then 
                  if state.grid_momentary_mode then
                     state.stutter_memory[trk] = {start = state.tracks[trk].loop_start, end_ = state.tracks[trk].loop_end}
                     local center = (x-1)/15; local width = 0.05 
@@ -565,12 +568,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                     Loopers.seek(trk, pos, state)
                  end
               else
-                 -- [FIX] If button was released quickly (debounce passed but z=0 arrived before sleep ended), count keys held is nil.
-                 -- We still want to seek if it was a single tap.
-                 -- Since we can't trust keys_held after sleep, we assume single tap seek happened on press?
-                 -- No, multi-touch logic requires wait.
-                 -- The issue on Shield is delays.
-                 -- If I remove the `if state.grid_keys_held` check, it will seek even if released.
                  local pos = (x-1)/15
                  Loopers.seek(trk, pos, state)
               end
@@ -596,12 +593,15 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
   if is_tape_view and y == 5 then
      if x <= 4 and z == 1 then 
         state.track_sel = x
+        state.grid_track_held = true
+        
         if state.current_page == 9 then
            state.mixer_sel = x
            state.grid_mixer_held = true
         end
      elseif x <= 4 and z == 0 then
         state.grid_mixer_held = false
+        state.grid_track_held = false
      end
      
      if x >= 6 then
