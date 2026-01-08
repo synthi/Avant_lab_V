@@ -1,5 +1,5 @@
--- Avant_lab_V lib/globals.lua | Version 2021
--- UPDATE: Clean Build (Removed rnd_pool)
+-- Avant_lab_V lib/globals.lua | Version 2027
+-- UPDATE: CRITICAL RESTORE of History Buffers & Length Constants to prevent Graphics Crash
 
 local Globals = {}
 
@@ -31,12 +31,14 @@ function Globals.new()
      end
   end
 
-  s.GONIO_LEN = 80;
-  s.FILTER_LEN = 60;
+  -- [CRITICAL] Graphics Dependencies
+  s.GONIO_LEN = 80
+  s.FILTER_LEN = 60
   
   s.gonio_history = {}; for i=1, s.GONIO_LEN do s.gonio_history[i] = {s=0, w=0} end
   s.filter_history = {}; for i=1, s.FILTER_LEN do s.filter_history[i] = {amp=0, phase=0} end
   s.time_history = {}; for i=1, s.FILTER_LEN do s.time_history[i] = {ph=0, r=0, m=0} end
+  
   s.heads = {gonio=1, filter=1, time=1}
   s.str_cache = {}
 
@@ -87,7 +89,6 @@ function Globals.new()
   s.saved_fb = 0; s.saved_tape_fb = 0; s.saved_fmix = 1.0
   s.ping_pattern = {}; s.ping_pulses = {}; s.rate_offset = 0; s.ping_step_counter = 0
   s.loaded_scale_name = "Bark"; s.preview_scale_idx = 1
-  -- [FIX v2021] Removed unused rnd_pool
   
   return s
 end
