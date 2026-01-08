@@ -1,5 +1,5 @@
--- Avant_lab_V.lua | Version 2023
--- UPDATE: Removed spaces in parameter formatters (20 Hz -> 20Hz)
+-- Avant_lab_V.lua | Version 2028
+-- UPDATE: Fixed 1/256 Crash (DIV_VALUES), Restored Ping Logic (No blocking)
 
 engine.name = 'Avant_lab_V'
 
@@ -13,7 +13,8 @@ local Loopers = include('lib/loopers')
 
 g = grid.connect()
 
-local DIV_VALUES = {4, 2, 1, 0.5, 0.25, 0.125, 0.0625, 0.03125}
+-- [FIX v2028] Added missing 9th value (1/256 = 0.015625) to prevent crash
+local DIV_VALUES = {4, 2, 1, 0.5, 0.25, 0.125, 0.0625, 0.03125, 0.015625}
 local SRC_OPTIONS = {"Clean Input", "Post Tape", "Post Filter", "Post Reverb", "Track 1", "Track 2", "Track 3", "Track 4"}
 local MAX_BUFFER_SEC = 120.0 
 
@@ -38,7 +39,7 @@ local function set_p(id, val)
     state.str_cache[id] = params:string(id)
 end
 
--- [HELPER] Formatters (FIX v2023: Removed spaces)
+-- [HELPER] Formatters
 local function fmt_db(param) return string.format("%.1fdB", util.linlin(0, 1, -60, 12, param:get())) end
 local function fmt_percent(param) return string.format("%.0f%%", param:get() * 100) end
 local function fmt_hz(param) return string.format("%.1fHz", param:get()) end
@@ -46,7 +47,7 @@ local function fmt_sec(param) return string.format("%.2fs", param:get()) end
 local function fmt_ratio(param) return string.format("%.1f:1", param:get()) end
 local function fmt_raw_db(param) return string.format("%.1fdB", param:get()) end 
 
--- [FIX v2015] Robust Ping Pattern Update
+-- Robust Ping Pattern Update
 function update_ping_pattern()
   local k = params:get("ping_hits")
   local n = params:get("ping_steps")
@@ -224,7 +225,6 @@ function osc.event(path, args, from)
     
   elseif path == "/avant_lab_v/visuals" then
     if args and #args >= 23 then
-        -- [FIX v2014] Master meters: RAW (No ballistics, preserving Plasma look)
         state.amp_l = args[1]
         state.amp_r = args[2]
         state.comp_gr = args[3]
@@ -248,7 +248,6 @@ function osc.event(path, args, from)
             end
         end
         
-        -- [FIX v2014] Band Meters: SMOOTHING (Interpolation for weight/inertia)
         local smooth_factor = 0.25
         for i=1, 16 do 
             local target = args[7+i]
@@ -266,10 +265,16 @@ g.key = function(x, y, z) Grid.key(x, y, z, state, engine) end
 function ping_tick()
   while true do
     local mode = params:get("ping_mode")
-    -- [FIX v2015] Check that pattern table exists and has entries
-    if mode == 2 and (params:get("ping_active") == 2) and params:get("ping_steps") > 0 and state.ping_pattern and #state.ping_pattern > 0 then
-      state.ping_step_counter = (state.ping_step_counter % params:get("ping_steps")) + 1
-      if state.ping_pattern[state.ping_step_counter] then engine.ping_sequence(1) end
+    -- [FIX v2028] RESTORED NON-BLOCKING LOGIC
+    -- We assume the pattern will arrive eventually. We don't block the loop.
+    if mode == 2 and (params:get("ping_active") == 2) and params:get("ping_steps") > 0 then
+        -- Try to access pattern safely, if nil, just skip trigger this tick
+        if state.ping_pattern and #state.ping_pattern > 0 then
+            state.ping_step_counter = (state.ping_step_counter % params:get("ping_steps")) + 1
+            if state.ping_pattern[state.ping_step_counter] then 
+                engine.ping_sequence(1) 
+            end
+        end
     end
     clock.sync(DIV_VALUES[params:get("ping_div") or 3])
   end
@@ -490,17 +495,13 @@ function init()
   params:add{type = "file", id = "load_reel_3", name = "Load Reel 3", path = _path.audio, action = function(f) Loopers.load_file(3, f, state) end}
   params:add{type = "file", id = "load_reel_4", name = "Load Reel 4", path = _path.audio, action = function(f) Loopers.load_file(4, f, state) end}
   
-  -- [FIX v2011] Removed "END OF AVANT_LAB_V" separator
-
   Grid.init(state, g)
   
-  -- [FIX v2013] Screen Timer @ 60Hz
   local screen_timer = metro.init()
   screen_timer.time = 1/60
   screen_timer.event = function() redraw() end
   screen_timer:start()
   
-  -- [FIX v2013] Grid Timer @ 30Hz
   local grid_timer = metro.init()
   grid_timer.time = 1/30
   grid_timer.event = function() Grid.redraw(state) end
@@ -520,9 +521,11 @@ function init()
   params.action_write = function(filename, name, number) Storage.save_data(state, number) end
   params.action_read = function(filename, silent, number) Storage.load_data(state, number) end
   
+  -- [FIX v2025] update_ping_pattern call in Init
   update_ping_pattern()
   params:bang()
   
+  -- Force refresh of visual cache
   local visual_ids = {
      "feedback", "global_q", "system_dirt", "main_mon", "main_source", "fader_slew",
      "input_amp", "noise_amp", "noise_type", "reverb_mix", "reverb_time", "reverb_damp",
