@@ -1,5 +1,5 @@
--- Avant_lab_V lib/graphics.lua | Version 2024
--- UPDATE: Fixed Page 1 Header Overlap (LFO Label calculation)
+-- Avant_lab_V lib/graphics.lua | Version 2041
+-- RESTORATION: Page 10 Active. Page 6 Motion. Page 5 Geometry Corrected (40, 31). Organic Nebulas.
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -153,6 +153,60 @@ local function draw_mixer_view(state, shift)
   screen.update()
 end
 
+local function draw_plasma_bar_fluid(x, y, w, h, val, is_inverted, is_gr)
+   local seg_w = 2; local gap = 1; local total_segs = math.floor(w / (seg_w + gap))
+   screen.level(1)
+   for i=0, total_segs-1 do screen.rect(x + (i * (seg_w+gap)), y, seg_w, h); screen.fill() end
+   local active_float = val * total_segs; local active_int = math.floor(active_float); local active_frac = active_float - active_int
+   local function get_brightness(pct) if is_gr then return 8 end; if pct < 0.6 then return 6 elseif pct < 0.9 then return 10 else return 15 end end
+   for i=0, active_int-1 do
+      local pos_x = x + (i * (seg_w+gap)); if is_inverted then pos_x = x + w - ((i+1) * (seg_w+gap)) end
+      local pct = (i+1) / total_segs; screen.level(get_brightness(pct)); screen.rect(pos_x, y, seg_w, h); screen.fill()
+   end
+   if active_frac > 0.1 and active_int < total_segs then
+      local i = active_int; local pos_x = x + (i * (seg_w+gap)); if is_inverted then pos_x = x + w - ((i+1) * (seg_w+gap)) end
+      local pct = (i+1) / total_segs; local base_b = get_brightness(pct); local tip_b = math.floor(base_b * active_frac)
+      if tip_b > 0 then screen.level(tip_b); screen.rect(pos_x, y, seg_w, h); screen.fill() end
+   end
+end
+
+local function draw_master_view(state, shift)
+   screen.clear()
+   screen.font_size(8)
+   
+   if not shift then draw_left_e1("MONITOR", get_txt("main_mon")) 
+   else draw_left_e1("CEIL", get_txt("limiter_ceil")) end
+   
+   draw_vertical_divider(); draw_header_right("MASTER"); draw_goniometer_block(state)
+   
+   local cx = 50; local w = 52; local y_start = 28 
+   local gr = state.comp_gr or 0; local gr_norm = clamp(gr * 4, 0, 1) 
+   screen.level(3); screen.move(cx - 38, y_start - 4); screen.text_right("GR")
+   draw_plasma_bar_fluid(cx - 30, y_start - 7, w, 2, gr_norm, true, true)
+   
+   local amp_l_db = 20 * math.log10(state.amp_l > 0.0001 and state.amp_l or 0.0001)
+   local amp_r_db = 20 * math.log10(state.amp_r > 0.0001 and state.amp_r or 0.0001)
+   local l_norm = linlin(-60, 0, 0, 1, amp_l_db); l_norm = clamp(l_norm, 0, 1)
+   local r_norm = linlin(-60, 0, 0, 1, amp_r_db); r_norm = clamp(r_norm, 0, 1)
+   screen.level(3); screen.move(cx - 38, y_start + 4); screen.text_right("L")
+   draw_plasma_bar_fluid(cx - 30, y_start + 1, w, 4, l_norm, false, false)
+   screen.level(3); screen.move(cx - 38, y_start + 11); screen.text_right("R")
+   draw_plasma_bar_fluid(cx - 30, y_start + 8, w, 4, r_norm, false, false)
+   
+   local bf = params:get("bass_focus")
+   local txt_bf = {"OFF", "50Hz", "100Hz", "200Hz"}
+   screen.level(3); screen.move(0, 53); screen.text("MONO BASS")
+   screen.level(bf > 1 and 15 or 6); screen.move(0, 60); screen.text(txt_bf[bf] or "OFF")
+   
+   if not shift then
+      draw_right_param_pair("THRESH", get_txt("bus_thresh"), "RATIO", get_txt("bus_ratio"))
+   else
+      draw_right_param_pair("BAL", get_txt("balance"), "DRIVE", get_txt("bus_drive"))
+   end
+   
+   screen.update()
+end
+
 function Graphics.draw(state)
   local page = state.current_page
   local shift = state.k1_held or state.mod_shift_16 or state.grid_shift_active or state.grid_track_held
@@ -240,7 +294,6 @@ function Graphics.draw(state)
         screen.text("K3: " .. s_name .. " >") 
      end
      
-     -- [FIX v2024] Correct string width calculation to prevent overlap
      local lfo_str = string.format("%.2f", params:get("lfo_depth"))
      screen.move(128, 8); if shift then screen.level(15) else screen.level(3) end; screen.text_right(lfo_str)
      screen.move(128 - screen.text_extents(lfo_str) - 4, 8); screen.level(3); screen.text_right("LFO:")
@@ -270,7 +323,6 @@ function Graphics.draw(state)
         screen.move(col2_x, 60); screen.level(10); screen.text(get_txt("global_q"))
      else
         screen.move(col1_x, 53); screen.level(3); screen.text("RATE")
-        -- [FIX v2023] Manual formatting without Hz for Page 1
         screen.move(col1_x, 60); screen.level(15); screen.text(string.format("%.2f", params:get("lfo_rate")))
         screen.move(col2_x, 53); screen.level(3); screen.text("ROOT")
         screen.move(col2_x, 60); screen.level(15); screen.text(get_txt("root_note"))
@@ -281,8 +333,6 @@ function Graphics.draw(state)
 
   if page == 2 then
     screen.clear()
-    -- Page 2 uses helper (Center layout)
-    -- [FIX v2023] Manual formatting for HPF/LPF without Hz to prevent overlap
     if not shift then 
         draw_left_e1("MIX", get_txt("filter_mix")); 
         draw_right_param_pair("HPF", string.format("%.1f", params:get("pre_hpf")), "LPF", string.format("%.1f", params:get("pre_lpf")))
@@ -292,7 +342,7 @@ function Graphics.draw(state)
     end
     local area_w = 84; local cy = 15 + (45 / 2) - 4 
     
-    local h = state.heads.filter; local len = state.FILTER_LEN -- Use globals
+    local h = state.heads.filter; local len = state.FILTER_LEN 
     local total_energy = 0; for i=1,16 do total_energy = total_energy + (state.band_levels[i] or 0) end
     anim_phase_osc = (anim_phase_osc or 0) + 0.1
     state.filter_history[h].amp = clamp(total_energy * 20, 2, 18)
@@ -302,7 +352,7 @@ function Graphics.draw(state)
     for t=0, len-1 do
        local idx = (h - 1 - t - 1) % len + 1
        local frame = state.filter_history[idx]
-       local brightness = floor(10 / (t * 0.5 + 1)) -- Slower Fade
+       local brightness = floor(10 / (t * 0.5 + 1)) 
        if brightness > 0 then
          screen.level(brightness)
          for i = 0, area_w, 2 do
@@ -317,7 +367,6 @@ function Graphics.draw(state)
 
   if page == 3 then
     screen.clear()
-    -- [FIX v2023] Manual formatting for RM Freq without Hz
     if not shift then draw_left_e1("REV", get_txt("reverb_mix")); draw_right_param_pair("RMIX", get_txt("rm_mix"), "MON", get_txt("main_mon"))
     else 
         draw_left_e1("DIRT", get_txt("system_dirt")); 
@@ -357,8 +406,10 @@ function Graphics.draw(state)
   end
 
   if page == 5 then
+    -- [RESTORED v2041] Page 5: Corrected Geometry (40,31) + Organic Nebula Logic
     screen.clear()
     local mode = params:get("ping_mode") or 1
+    
     if mode == 1 then 
       if not shift then draw_left_e1("RATE", get_txt("ping_rate")); draw_right_param_pair("JITTER", get_txt("ping_jitter"), "TIMBRE", get_txt("ping_timbre"))
       else draw_left_e1("RATE F", get_txt("ping_rate")); draw_right_param_pair("FINE", get_txt("ping_rate"), "LEVEL", get_txt("ping_amp")) end
@@ -366,23 +417,141 @@ function Graphics.draw(state)
       if not shift then draw_left_e1("STEPS", get_txt("ping_steps")); draw_right_param_pair("HITS", get_txt("ping_hits"), "DIV", get_txt("ping_div"))
       else draw_left_e1("TIMBRE", get_txt("ping_timbre")); draw_right_param_pair("JITTER", get_txt("ping_jitter"), "LEVEL", get_txt("ping_amp")) end
     end
-    local cx = 84 * 0.4; local cy = 15 + 45/2; local pulse_r = amp_l * 10
-    local base_r = 6 + sin(now * 0.6) * 2 + pulse_r
-    screen.level(3)
-    for a = 0, 6.28, 0.2 do local noise_r = sin(a * 3 + now) * 1.5; screen.pixel(cx + cos(a)*(base_r+noise_r), cy + sin(a)*(base_r+noise_r)) end
-    screen.fill()
-    for i = #state.ping_pulses, 1, -1 do
-      local p = state.ping_pulses[i]; local age = now - p.t0; local k = age / 0.6
-      if k >= 1 then table.remove(state.ping_pulses, i)
-      else
-        local radius = k * 35; local jitter = (p.jitter or 0) * 4
-        local pcx = cx + (random() - 0.5) * 2 * jitter; local pcy = cy + (random() - 0.5) * 2 * jitter 
-        -- [FIX v2014] Ping Persistence: Slower fade (10 + ...) to keep bright longer
-        local b = floor(clamp(linlin(0,1,12,6, p.amp or 0.7) * (1-k) + 4, 6, 15))
-        screen.level(b); for a = 0, 6.28, 0.25 do local r = radius + pulse_r + (sin(a * 4 + (p.phase_off or 0)) * radius * 0.2); screen.pixel(pcx + cos(a)*r, pcy + sin(a)*r) end
-        screen.fill()
-      end
+
+    -- [FIX v2041] Geometry shifted -3px Left, -3px Up
+    local cx, cy = 40, 31
+    local rx, ry = 40, 12
+    local current_amp = amp_l * 30 
+    
+    -- Safety Clipping
+    local function safe_pixel(x, y)
+        if x >= 0 and x <= 84 and y >= 15 and y <= 53 then
+            screen.pixel(x, y)
+        end
     end
+
+    if mode == 1 then 
+       -- MODE FREE: Lissajous/Spiral
+       local rate = params:get("ping_rate") or 1
+       local log_speed = (rate ^ 0.9) * 0.3
+       local t_val = now * 10 * log_speed
+       local jit_amount = params:get("ping_jitter") or 0
+       local jitter = 1.0 + ((random() - 0.5) * jit_amount * 0.12)
+       local drift = now * 0.2
+       
+       local x = cx + sin(t_val + drift) * (rx * jitter)
+       local y = cy + sin(2 * t_val) * ((ry + current_amp) * jitter) 
+       
+       local head_size = 1 + floor(current_amp * 0.8)
+       screen.level(15)
+       if head_size > 1 then
+           screen.circle(x, y, head_size)
+           screen.fill()
+       else
+           screen.pixel(x, y)
+           screen.fill()
+       end
+       
+       local h = state.heads.time 
+       state.time_history[h].ph = x 
+       state.time_history[h].r = y
+       state.heads.time = (h % state.FILTER_LEN) + 1
+       
+       for i=0, state.FILTER_LEN-1 do
+          local idx = (h - 1 - i - 1) % state.FILTER_LEN + 1
+          local old_x = state.time_history[idx].ph
+          local old_y = state.time_history[idx].r
+          local b = floor(15 / (i * 0.08 + 1))
+          if b > 1 and old_x ~= 0 then
+             screen.level(math.random(b-2, b)); 
+             safe_pixel(old_x, old_y); 
+             screen.fill()
+          end
+       end
+
+    else 
+       -- MODE EUCLIDEAN
+       local steps = params:get("ping_steps") or 16
+       local current = state.ping_step_counter
+       local pattern = state.ping_pattern
+       local is_hit_now = false
+       
+       if pattern and pattern[current] then is_hit_now = true end
+
+       -- [FIX v2041] Center Nebula Injection (Restored at cx, cy)
+       if is_hit_now then
+           local h = state.heads.time
+           local p_count = 30 -- Good density
+           for p=1, p_count do 
+               local angle = random() * 2 * pi
+               local dist = random() * 2 -- Spawn compact in center
+               state.time_history[h].ph = cx + cos(angle)*dist
+               state.time_history[h].r = cy + sin(angle)*dist
+               state.heads.time = (state.heads.time % state.FILTER_LEN) + 1
+               h = state.heads.time
+           end
+       end
+       
+       -- Draw Nebula (Expands out)
+       local h_ptr = state.heads.time
+       for i=0, state.FILTER_LEN-1 do
+          local idx = (h_ptr - 1 - i - 1) % state.FILTER_LEN + 1
+          local old_x = state.time_history[idx].ph
+          local old_y = state.time_history[idx].r
+          
+          if old_x ~= 0 then
+              -- Radial Expansion
+              old_x = old_x + (old_x - cx) * 0.15 
+              old_y = old_y + (old_y - cy) * 0.15
+              state.time_history[idx].ph = old_x
+              state.time_history[idx].r = old_y
+          end
+
+          -- [FIX v2041] Organic Fade
+          local b = floor(10 * math.exp(-i * 0.15)) 
+          if b > 0 and old_x ~= 0 then
+             screen.level(math.random(1, b)); 
+             safe_pixel(old_x, old_y); 
+             screen.fill()
+          end
+       end
+
+       -- Draw Clock Points
+       for i=1, steps do
+          local theta = ((i-1)/steps) * 6.28 - 1.57
+          local px_base = cx + cos(theta) * rx
+          local py_base = cy + sin(theta) * (ry + (current_amp * 0.5)) 
+          
+          local b = 2
+          if pattern and pattern[i] then b = 6 end 
+          if i == current then 
+            b = 13
+            if is_hit_now then b = 15 end
+          end 
+          
+          screen.level(b)
+          if b > 2 then
+             -- [FIX v2041] Organic Clusters (Not Square, Not Huge)
+             local scatter = 1.5
+             local count = 20
+             if i==current then 
+                scatter = 3.0 -- Larger cursor
+                count = 40    -- Dense cursor
+             end
+             for d=1, count do
+                 -- Polar distribution for organic look
+                 local ang = random() * 2 * pi
+                 local rad = random() * scatter
+                 safe_pixel(px_base + cos(ang)*rad, py_base + sin(ang)*rad)
+                 screen.fill()
+             end
+          else
+             screen.pixel(px_base, py_base)
+             screen.fill()
+          end
+       end
+    end
+    
     draw_vertical_divider(); draw_goniometer_block(state); draw_header_right("PING"); screen.update(); return
   end
 
@@ -396,20 +565,20 @@ function Graphics.draw(state)
     else draw_left_e1("SEQ F", get_txt("seq_rate"..suffix)); draw_right_param_pair("MORPH", get_txt("preset_morph"..suffix), "SEQ Q", get_txt("seq_rate"..suffix)) end
     
     local cx = 84 * 0.4; local cy = 15 + 45/2
-    anim_phase_time = (anim_phase_time or 0) + ((params:get("seq_rate"..suffix) or 0) * 0.2) 
+    anim_phase_time = (anim_phase_time or 0) + ((params:get("seq_rate"..suffix) or 0) * 0.2) + 0.005
     
-    local h = state.heads.time; local len = state.FILTER_LEN -- Using global constant
+    local h = state.heads.time; local len = state.FILTER_LEN 
     state.time_history[h].ph = anim_phase_time
-    state.time_history[h].r = 12 + (amp_l * 15)
+    local breath = sin(now * 0.5) * 4
+    state.time_history[h].r = (12 + breath) + (amp_l * 15)
     state.time_history[h].m = params:get("preset_morph"..suffix) or 0
     state.heads.time = (h % len) + 1
     
     for i=0, len-1 do
        local idx = (h - 1 - i - 1) % len + 1
        local frame = state.time_history[idx]
-       -- [FIX v2014] Exaggerated Persistence: Slower fade (divide by less) + Minimum brightness floor
-       local brightness = floor(15 / (i * 0.15 + 1)) 
-       if brightness < 2 then brightness = 2 end -- Min Brightness Floor "Always Alive"
+       local brightness = floor(15 / (i * 0.05 + 1)) 
+       if brightness < 2 then brightness = 2 end 
        screen.level(brightness)
        for t = 0, 6.28, 0.1 do
          local r = frame.r + cos(t * (2 + floor(frame.m*2))) * (frame.m * 3)
