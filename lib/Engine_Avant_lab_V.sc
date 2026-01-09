@@ -1,5 +1,5 @@
-// lib/Engine_Avant_lab_V.sc | Version 2050
-// UPDATE: Knee .pow(0.08), Digital Rain (S&H), Removed Gendy
+// lib/Engine_Avant_lab_V.sc | Version 2055
+// UPDATE: FIXED missing Synth instantiation. Includes Noise DC Fix + Tanh + Gain 0.15
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -187,16 +187,20 @@ Engine_Avant_lab_V : CroneEngine {
             
             aux_feedback_in = InFeedback.ar(aux_return_bus_idx, 2).tanh; 
             
-            // [UPDATE v2050] "Digital Rain" (S&H) replacing LFNoise. Removed Gendy. Total 6.
+            // [UPDATE v2053] LeakDC at source + Tanh + 0.6 Gain
             noise = Select.ar(noise_type, [
                 PinkNoise.ar, 
-                WhiteNoise.ar, 
+                WhiteNoise.ar * 0.5, 
                 Crackle.ar(1.9), 
-                // Digital Rain: White noise latched by irregular dust triggers
-                Latch.ar(WhiteNoise.ar, Dust.ar(LFNoise1.kr(0.3).exprange(5, 50))) * 0.3,
+                Latch.ar(WhiteNoise.ar, Dust.ar(LFNoise1.kr(0.3).exprange(5, 50))) * 0.4,
                 LorenzL.ar(2800) * 0.8, 
-                Dust2.ar(LFNoise1.kr(0.3).exprange(300, 2000)) * 0.7 
-            ]) * noise_amp * 0.05;
+                Dust2.ar(LFNoise1.kr(0.3).exprange(300, 2000)) * 0.9
+            ]);
+            
+            // Apply gain and safety
+            noise = noise * noise_amp * 0.6; // louder than original
+            noise = LeakDC.ar(noise);         // Fix Latch DC
+            noise = noise.tanh;               // Soft saturation instead of clip2
             
             hiss_vol = (system_dirt.pow(0.75)) * 0.03;
             hum_vol = (system_dirt.pow(3)) * 0.015;
@@ -271,7 +275,6 @@ Engine_Avant_lab_V : CroneEngine {
             bank_in = [(sig_main_tape[0] * (1.0 - rm_mix)) + (rm_processed_l * rm_mix), (sig_main_tape[1] * (1.0 - rm_mix)) + (rm_processed_r * rm_mix)];
             bank_in = HPF.ar(bank_in, pre_hpf); bank_in = LPF.ar(bank_in, pre_lpf);
 
-            // [UPDATE v2050] High Freq Compensation .pow(0.08) - Extremely Subtle
             16.do({ |i|
                 var key_g, key_f, db, amp, f, jitter, effective_q, mod_q, raw_rq;
                 var input_gain, base_gain;
@@ -299,10 +302,7 @@ Engine_Avant_lab_V : CroneEngine {
                 compensation = (1.0 / squish_factor).sqrt.clip(1.0, 1.8);
                 
                 base_gain = (600 / f).pow(0.28).clip(0.1, 3.0);
-                
-                // [NEW] Subtle Lift > 4000Hz (0.08)
-                high_boost = (f / 4000.0).max(1.0).pow(0.08);
-                
+                high_boost = (f / 4000.0).max(1.0).pow(0.08); // Subtle 0.08
                 input_gain = base_gain * compensation * high_boost;
                 
                 spread_val = (i%2) * 2 - 1; 
@@ -543,8 +543,7 @@ Engine_Avant_lab_V : CroneEngine {
         ], context.xg);
 
         context.server.sync;
-        
-        // Commands
+
         this.addCommand("buffer_read", "is", { |msg| 
             var remote = NetAddr("127.0.0.1", 10111);
             var bufnum = buffers[msg[1]-1]; 
