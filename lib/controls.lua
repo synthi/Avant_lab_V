@@ -1,5 +1,5 @@
--- Avant_lab_V lib/controls.lua | Version 2019
--- UPDATE: Page 7 Loopers now includes Degrade on Shift+E1
+-- Avant_lab_V lib/controls.lua | Version 2050
+-- UPDATE: Noise Encoder Limit (0-5)
 
 local Controls = {}
 local fileselect = require 'fileselect'
@@ -59,9 +59,10 @@ Pages[2] = {
          elseif n==2 then params:delta("pre_hpf", d)
          elseif n==3 then params:delta("pre_lpf", d) end
       else
+         -- [UPDATE v2044] Stabilizer / Drift / Crossfeed
          if n==1 then params:delta("stabilizer", d*0.5)
          elseif n==2 then params:delta("filter_drift", d*0.5)
-         elseif n==3 then params:delta("spread", d*0.5) end
+         elseif n==3 then params:delta("crossfeed", d*0.5) end
       end
    end,
    key = function(n, z, s)
@@ -91,7 +92,8 @@ Pages[3] = {
       if n==2 and z==1 then 
          local w = params:get("rm_wave"); w = w%4 + 1; params:set("rm_wave", w)
       elseif n==3 and z==1 then 
-         local nt = params:get("noise_type"); params:set("noise_type", nt == 2 and 0 or nt + 1)
+         -- [UPDATE v2050] Limit 6 Noise Types (0-5)
+         local nt = params:get("noise_type"); params:set("noise_type", nt == 5 and 0 or nt + 1)
       end
    end
 }
@@ -150,7 +152,7 @@ Pages[5] = {
    end
 }
 
--- PAGE 6 (TIME)
+-- PAGE 6 (TIME / PAN)
 Pages[6] = {
    enc = function(n, d, s)
       local suffix = (s.time_page_focus == "MAIN") and "_main" or "_tape"
@@ -159,9 +161,10 @@ Pages[6] = {
          elseif n==2 then params:delta("fader_slew", d)
          elseif n==3 then params:delta("preset_morph"..suffix, d) end
       else
-         if n==1 then params:delta("seq_rate"..suffix, d*0.1)
-         elseif n==2 then params:delta("preset_morph"..suffix, d*0.1)
-         elseif n==3 then params:delta("seq_rate"..suffix, d*0.25) end
+         -- [UPDATE v2044] Swirl Controls
+         if n==1 then params:delta("spread", d*0.5)
+         elseif n==2 then params:delta("swirl_rate", d*0.5)
+         elseif n==3 then params:delta("swirl_depth", d*0.5) end
       end
    end,
    key = function(n, z, s)
@@ -173,9 +176,8 @@ Pages[6] = {
 -- PAGE 7 (LOOPERS)
 Pages[7] = {
    enc = function(n, d, s)
-      -- [FIX v2019] Added Degrade (wow_macro) to Shift E1
       if (s.k1_held or s.mod_shift_16 or s.grid_shift_active or s.grid_track_held) then
-         if n==1 then Loopers.delta_param("wow", d, s) -- Degrade mapped here
+         if n==1 then Loopers.delta_param("wow", d, s)
          elseif n==2 then Loopers.delta_param("start", d, s)
          elseif n==3 then Loopers.delta_param("end", d, s) end
       else
