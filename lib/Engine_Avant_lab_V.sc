@@ -1,5 +1,5 @@
-// lib/Engine_Avant_lab_V.sc | Version 2021
-// UPDATE: Clean Build (Removed dead variables: band_amps_array)
+// lib/Engine_Avant_lab_V.sc | Version 2050
+// UPDATE: Knee .pow(0.08), Digital Rain (S&H), Removed Gendy
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -33,7 +33,6 @@ Engine_Avant_lab_V : CroneEngine {
         
         track_out_buses = { Bus.audio(context.server, 2) } ! 4;
 
-        // SYNC 1
         context.server.sync;
 
         // 2. OSC BRIDGE
@@ -51,14 +50,10 @@ Engine_Avant_lab_V : CroneEngine {
              comp_thresh=0.5, comp_ratio=2.0, comp_drive=0.0, comp_gain=0.0, 
              bass_focus_mode=0, limiter_ceil=0.0, balance=0.0| 
 
-            // Strict Variables
+            // Variables
             var trig_meter, all_visual_data;
             var report_amp_l, report_amp_r, report_gr;
-            
-            // Accumulators
-            var sum_l = 0.0;
-            var sum_r = 0.0;
-            
+            var sum_l = 0.0, sum_r = 0.0;
             var pointers = Array.newClear(4);
             var bands_clean_read;
 
@@ -70,7 +65,7 @@ Engine_Avant_lab_V : CroneEngine {
             var t_seq, t_manual;
             var rm_freq, rm_wave, rm_mix, rm_inst, rm_drive;
             var raw_pre_hpf, raw_pre_lpf, pre_hpf, pre_lpf;
-            var stabilizer, spread, filter_mix, fader_lag;
+            var stabilizer, spread, swirl_depth, swirl_rate, filter_mix, fader_lag; 
             var lfo_depth, lfo_rate, lfo_min_db;
             var tm_mix, tm_time, tm_fb, tm_sat, tm_wow, tm_flut, tm_ero;
             var system_dirt, filter_drift, main_mon;
@@ -134,6 +129,8 @@ Engine_Avant_lab_V : CroneEngine {
             
             stabilizer = \stabilizer.kr(0);
             spread = \spread.kr(0);
+            swirl_depth = \swirl_depth.kr(0); 
+            swirl_rate = \swirl_rate.kr(0.1); 
             filter_mix = \filter_mix.kr(1);
             fader_lag = \fader_lag.kr(0.05);
             
@@ -167,15 +164,12 @@ Engine_Avant_lab_V : CroneEngine {
             l_deg = [\l1_deg.kr(0), \l2_deg.kr(0), \l3_deg.kr(0), \l4_deg.kr(0)];
             l_xfade = [\l1_xfade.kr(0.05), \l2_xfade.kr(0.05), \l3_xfade.kr(0.05), \l4_xfade.kr(0.05)];
             l_brake = [\l1_brake.kr(0), \l2_brake.kr(0), \l3_brake.kr(0), \l4_brake.kr(0)];
-            
             l_rec_lvl = [\l1_rec_lvl.kr(0), \l2_rec_lvl.kr(0), \l3_rec_lvl.kr(0), \l4_rec_lvl.kr(0)];
-            
             l_low = [\l1_low.kr(0), \l2_low.kr(0), \l3_low.kr(0), \l4_low.kr(0)];
             l_high = [\l1_high.kr(0), \l2_high.kr(0), \l3_high.kr(0), \l4_high.kr(0)];
             l_filter = [\l1_filter.kr(0.5), \l2_filter.kr(0.5), \l3_filter.kr(0.5), \l4_filter.kr(0.5)];
             l_pan = [\l1_pan.kr(0), \l2_pan.kr(0), \l3_pan.kr(0), \l4_pan.kr(0)];
             l_width = [\l1_width.kr(1), \l2_width.kr(1), \l3_width.kr(1), \l4_width.kr(1)];
-            
             l_seek_t = [\l1_seek_t.tr(0), \l2_seek_t.tr(0), \l3_seek_t.tr(0), \l4_seek_t.tr(0)];
             l_seek_p = [\l1_seek_p.kr(0), \l2_seek_p.kr(0), \l3_seek_p.kr(0), \l4_seek_p.kr(0)];
             
@@ -193,7 +187,16 @@ Engine_Avant_lab_V : CroneEngine {
             
             aux_feedback_in = InFeedback.ar(aux_return_bus_idx, 2).tanh; 
             
-            noise = Select.ar(noise_type, [PinkNoise.ar, WhiteNoise.ar, BrownNoise.ar]) * noise_amp * 0.05;
+            // [UPDATE v2050] "Digital Rain" (S&H) replacing LFNoise. Removed Gendy. Total 6.
+            noise = Select.ar(noise_type, [
+                PinkNoise.ar, 
+                WhiteNoise.ar, 
+                Crackle.ar(1.9), 
+                // Digital Rain: White noise latched by irregular dust triggers
+                Latch.ar(WhiteNoise.ar, Dust.ar(LFNoise1.kr(0.3).exprange(5, 50))) * 0.3,
+                LorenzL.ar(2800) * 0.8, 
+                Dust2.ar(LFNoise1.kr(0.3).exprange(300, 2000)) * 0.7 
+            ]) * noise_amp * 0.05;
             
             hiss_vol = (system_dirt.pow(0.75)) * 0.03;
             hum_vol = (system_dirt.pow(3)) * 0.015;
@@ -268,20 +271,19 @@ Engine_Avant_lab_V : CroneEngine {
             bank_in = [(sig_main_tape[0] * (1.0 - rm_mix)) + (rm_processed_l * rm_mix), (sig_main_tape[1] * (1.0 - rm_mix)) + (rm_processed_r * rm_mix)];
             bank_in = HPF.ar(bank_in, pre_hpf); bank_in = LPF.ar(bank_in, pre_lpf);
 
-            // [FIX v2009/2010] TOPOLOGY INVERSION + EMPIRICAL STABILITY MATH
-            // Bands -> Channels loop avoids write collisions
+            // [UPDATE v2050] High Freq Compensation .pow(0.08) - Extremely Subtle
             16.do({ |i|
-                var key_g, key_f, db, amp, f, jitter, effective_q, mod_q, rq, raw_rq;
+                var key_g, key_f, db, amp, f, jitter, effective_q, mod_q, raw_rq;
                 var input_gain, base_gain;
                 var band_l, band_r;
-                var spread_l, spread_r;
+                var pan_pos, bal_l, bal_r, spread_val, swirl_osc;
                 var max_safe_rq, final_rq, squish_factor, compensation;
+                var high_boost;
                 
                 key_g = ("g" ++ i).asSymbol; key_f = ("f" ++ i).asSymbol;
                 db = Lag3.kr(NamedControl.kr(key_g, -60.0), fader_lag);
                 amp = db.dbamp; 
                 
-                // [FIX v2010] Hard Limit Freq to 18kHz
                 f = NamedControl.kr(key_f, init_freqs[i.clip(0,15)], 0.05) * (1 + (LFNoise2.kr(0.05+(i*0.02)).range(0.9,1.1) * filter_drift * 0.06));
                 f = f.clip(20, 18000);
                 
@@ -291,44 +293,38 @@ Engine_Avant_lab_V : CroneEngine {
                 mod_q = effective_q * LFNoise2.kr(0.2).range(1.0, 1.0-(filter_drift*0.3));
                 
                 raw_rq = (1.0 / mod_q.max(0.5));
-                
-                // [FIX v2009/2010] Empirical Stability Formula
-                // Linearly reduces max width as freq increases
                 max_safe_rq = (2.44 - (f * 0.0001075)).max(0.01);
-                
                 final_rq = raw_rq.min(max_safe_rq);
-                
-                // Gain Compensation
                 squish_factor = final_rq / raw_rq;
                 compensation = (1.0 / squish_factor).sqrt.clip(1.0, 1.8);
                 
                 base_gain = (600 / f).pow(0.28).clip(0.1, 3.0);
-                input_gain = base_gain * compensation;
                 
-                // Calculate L
-                band_l = BPF.ar(bank_in[0] * input_gain, f, final_rq) * (2.0 + (mod_q * 0.05));
-                // Calculate R
-                band_r = BPF.ar(bank_in[1] * input_gain, f, final_rq) * (2.0 + (mod_q * 0.05));
+                // [NEW] Subtle Lift > 4000Hz (0.08)
+                high_boost = (f / 4000.0).max(1.0).pow(0.08);
                 
-                // Stabilizer
+                input_gain = base_gain * compensation * high_boost;
+                
+                spread_val = (i%2) * 2 - 1; 
+                spread_val = spread_val * spread;
+                swirl_osc = SinOsc.kr(swirl_rate, (i / 16.0) * 2pi) * swirl_depth;
+                pan_pos = (spread_val + swirl_osc).clip(-1.0, 1.0);
+                bal_l = (1.0 - pan_pos).sqrt;
+                bal_r = (1.0 + pan_pos).sqrt;
+                
+                band_l = BPF.ar(bank_in[0] * input_gain, f, final_rq) * (2.0 + (mod_q * 0.05)) * bal_l;
+                band_r = BPF.ar(bank_in[1] * input_gain, f, final_rq) * (2.0 + (mod_q * 0.05)) * bal_r;
+                
                 band_l = band_l * (1.0 - ((Amplitude.kr(band_l,0.01,0.3) - 0.25).max(0) * stabilizer * 2.0).tanh);
                 band_r = band_r * (1.0 - ((Amplitude.kr(band_r,0.01,0.3) - 0.25).max(0) * stabilizer * 2.0).tanh);
                 
-                // Metering
                 Out.kr(bands_bus_base + i, (Amplitude.kr(band_l) + Amplitude.kr(band_r)) * 0.5);
                 
-                // Spreading
-                spread_l = 1.0 - (abs(0 - (i%2)) * spread); 
-                spread_r = 1.0 - (abs(1 - (i%2)) * spread); 
-                
-                // Summing
-                sum_l = sum_l + (LeakDC.ar(asym_sat.(band_l)) * amp * spread_l * jitter * 2.8);
-                sum_r = sum_r + (LeakDC.ar(asym_sat.(band_r)) * amp * spread_r * jitter * 2.8);
+                sum_l = sum_l + (LeakDC.ar(asym_sat.(band_l)) * amp * jitter * 2.8);
+                sum_r = sum_r + (LeakDC.ar(asym_sat.(band_r)) * amp * jitter * 2.8);
             });
             
-            // Reconstruct Stereo Signal
             bank_out = [sum_l, sum_r];
-            
             sig_filters = (bank_in * (1.0 - filter_mix)) + (bank_out * filter_mix);
             tap_post_filter = sig_filters;
             
@@ -424,24 +420,18 @@ Engine_Avant_lab_V : CroneEngine {
                 fade_len_micro = (0.01 * SampleRate.ir).min(loop_len * 0.5).max(4);
 
                 ptr = Phasor.ar(seek_t, rate_slew * BufRateScale.kr(b_idx), start_pos, end_pos, seek_p * BufFrames.kr(b_idx));
-                
-                // [FIX v2000] Capture Pointer into Array + Explicit A2K Conversion
                 pointers[i] = A2K.kr(ptr / BufFrames.kr(b_idx));
-                
                 Out.kr(pos_bus_base + i, pointers[i]); 
                 
                 dist_start = (ptr - start_pos).abs; dist_end = (end_pos - ptr).abs;
-                
                 fade_in_user = (dist_start / fade_len_user).clip(0, 1).pow(1.5); 
                 fade_out_user = (dist_end / fade_len_user).clip(0, 1);
                 gain_out_user = (fade_in_user.min(fade_out_user) * 0.5 * pi).sin;
-                
                 fade_in_micro = (dist_start / fade_len_micro).clip(0, 1);
                 fade_out_micro = (dist_end / fade_len_micro).clip(0, 1);
                 gain_micro = fade_in_micro.min(fade_out_micro).pow(0.5);
                 
                 play_sig = BufRd.ar(2, b_idx, ptr, 1, 2);
-                
                 deg_curve = trk_deg.pow(3.0); 
                 corrosion_am = 1.0 - (LFNoise2.kr(8 + (i*2)).unipolar * deg_curve * 0.6);
                 play_sig = play_sig * corrosion_am;
@@ -516,34 +506,19 @@ Engine_Avant_lab_V : CroneEngine {
             );
             
             gr_sig = (Peak.kr(driven_sig, Impulse.kr(20)) - Peak.kr(master_glue, Impulse.kr(20))).max(0);
-            
-            // [FIX v2001] Force Stereo to Mono (Summing reduction) to prevent Array Expansion
             report_gr = LagUD.kr(gr_sig.sum, 0, 0.1);
-            
             Out.kr(gr_bus_idx, report_gr);
-            
             master_glue = Balance2.ar(master_glue[0], master_glue[1], balance);
             master_out = Limiter.ar(master_glue.tanh, limiter_ceil.dbamp);
-            
             gonio_sig = Select.ar(gonio_source, [final_signal, master_out]);
-            
-            // Capture L/R Post-Lag
             report_amp_l = LagUD.kr(Peak.kr(gonio_sig[0], Impulse.kr(30)), 0, 0.1);
             report_amp_r = LagUD.kr(Peak.kr(gonio_sig[1], Impulse.kr(30)), 0, 0.1);
-            
             Out.kr(bus_l_idx, report_amp_l);
             Out.kr(bus_r_idx, report_amp_r);
-            
             master_out = master_out * main_mon_amp;
             
-            // --- VECTORIZED REPORTING (60Hz) ---
-            // [FIX v2013] Increased rate to 60Hz for smooth OLED performance
             trig_meter = Impulse.kr(60);
-            
-            // [FIX v2003] Decouple Bands via In.kr to prevent calculation graph overflow
             bands_clean_read = 16.collect({ |i| In.kr(bands_bus_base + i) });
-            
-            // [FIX v2006] Padding removed (Architecture fixed)
             all_visual_data = [
                 report_amp_l, report_amp_r, report_gr, 
                 pointers[0], pointers[1], pointers[2], pointers[3],
@@ -551,15 +526,11 @@ Engine_Avant_lab_V : CroneEngine {
             ].flat;
             
             SendReply.kr(trig_meter, '/avant_lab_v/visuals', all_visual_data);
-            
             Out.ar(aux_return_bus_idx, loop_aux_sum);
             Out.ar(out_bus, master_out);
         }).add;
 
-        // SYNC 2
         context.server.sync;
-
-        // 4. INSTANTIATION
         synth = Synth.new(\avant_lab_v_synth, [
             \out_bus, context.out_b, \in_bus, context.in_b,
             \buf1, buf1, \buf2, buf2, \buf3, buf3, \buf4, buf4, \dummy_buf, dummy_buf,
@@ -571,10 +542,9 @@ Engine_Avant_lab_V : CroneEngine {
             \t3_bus, track_out_buses[2].index, \t4_bus, track_out_buses[3].index
         ], context.xg);
 
-        // SYNC 3
         context.server.sync;
         
-        // 5. COMMANDS
+        // Commands
         this.addCommand("buffer_read", "is", { |msg| 
             var remote = NetAddr("127.0.0.1", 10111);
             var bufnum = buffers[msg[1]-1]; 
@@ -625,6 +595,9 @@ Engine_Avant_lab_V : CroneEngine {
         this.addCommand("pre_lpf", "f", { |msg| synth.set(\pre_lpf, msg[1]); });
         this.addCommand("stabilizer", "f", { |msg| synth.set(\stabilizer, msg[1]); });
         this.addCommand("spread", "f", { |msg| synth.set(\spread, msg[1]); });
+        this.addCommand("swirl_depth", "f", { |msg| synth.set(\swirl_depth, msg[1]); });
+        this.addCommand("swirl_rate", "f", { |msg| synth.set(\swirl_rate, msg[1]); });
+        
         this.addCommand("filter_mix", "f", { |msg| synth.set(\filter_mix, msg[1]); });
         this.addCommand("system_dirt", "f", { |msg| synth.set(\system_dirt, msg[1]); });
         this.addCommand("filter_drift", "f", { |msg| synth.set(\filter_drift, msg[1]); });
