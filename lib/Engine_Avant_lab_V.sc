@@ -1,5 +1,5 @@
-// lib/Engine_Avant_lab_V.sc | Version 2096
-// UPDATE: FINAL GOLD. LeakDC inside loop (Fixes Band1). Sym/Asym Hybrid Saturation. Tape 2.0s.
+// lib/Engine_Avant_lab_V.sc | Version 2055
+// UPDATE: FIXED missing Synth instantiation. Includes Noise DC Fix + Tanh + Gain 0.15
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -54,10 +54,7 @@ Engine_Avant_lab_V : CroneEngine {
             var trig_meter, all_visual_data;
             var report_amp_l, report_amp_r, report_gr;
             var sum_l = 0.0, sum_r = 0.0;
-            
-            // [SYSTEM] Pointers initialized (Fix OSC Shift)
-            var pointers = Array.fill(4, { DC.kr(0) });
-            
+            var pointers = Array.newClear(4);
             var bands_clean_read;
 
             // DSP Vars
@@ -75,7 +72,7 @@ Engine_Avant_lab_V : CroneEngine {
             
             var l_rec, l_play, l_vol, l_speed, l_start, l_end;
             var l_src, l_dub, l_aux, l_deg, l_xfade, l_brake;
-            var l_rec_lvl; 
+            var l_rec_lvl, l_rec_amp;
             var l_low, l_high, l_filter, l_pan, l_width;
             var l_seek_t, l_seek_p;
             
@@ -93,12 +90,9 @@ Engine_Avant_lab_V : CroneEngine {
             var aux_feedback_in, loop_outputs_sum, loop_aux_sum;
             var monitor_signal, main_mon_amp, master_out, gonio_sig;
             var trk1_in, trk2_in, trk3_in, trk4_in;
-            var driven_sig, master_glue, gr_sig;
+            var bass_mono_sig_50, bass_mono_sig_100, bass_mono_sig_200;
+            var driven_sig, master_glue, pre_comp_amp, post_comp_amp, gr_sig, raw_compressed;
             
-            // Bass Focus Optimization vars
-            var bf_freq, bf_mono, bf_processed;
-            
-            // Asymmetric Saturation Function (For Tape & Output Bus)
             var asym_sat = { |sig| (sig + 0.2).tanh - 0.2 };
 
             monitor_signal = Silent.ar(2);
@@ -156,6 +150,8 @@ Engine_Avant_lab_V : CroneEngine {
             filter_drift = \filter_drift.kr(0);
             main_mon = \main_mon.kr(0.833);
             
+            main_mon_amp = LinLin.kr(main_mon, 0, 1, -60, 12).dbamp * (main_mon > 0.001);
+            
             l_rec = [\l1_rec.kr(0), \l2_rec.kr(0), \l3_rec.kr(0), \l4_rec.kr(0)];
             l_play = [\l1_play.kr(0), \l2_play.kr(0), \l3_play.kr(0), \l4_play.kr(0)];
             l_vol = [\l1_vol.kr(0), \l2_vol.kr(0), \l3_vol.kr(0), \l4_vol.kr(0)];
@@ -191,33 +187,29 @@ Engine_Avant_lab_V : CroneEngine {
             
             aux_feedback_in = InFeedback.ar(aux_return_bus_idx, 2).tanh; 
             
-            // [NOISE] TRUE STEREO INDEPENDENT
+            // [UPDATE v2053] LeakDC at source + Tanh + 0.15 Gain
             noise = Select.ar(noise_type, [
-                { PinkNoise.ar } ! 2, 
-                { WhiteNoise.ar * 0.5 } ! 2, 
-                { Crackle.ar(1.9) } ! 2, 
-                // [QUALITY] Digital Rain: Original Complex Chain Restored
-                { Latch.ar(WhiteNoise.ar, Dust.ar(LFNoise1.kr(0.3).exprange(5, 50))) * 0.4 } ! 2,
-                // [OPTIMIZATION] Growl: LFNoise1 (Replaces Lorenz)
-                { LFNoise1.ar(500) * 0.7 } ! 2, 
-                { Dust2.ar(LFNoise1.kr(0.3).exprange(300, 2000)) * 0.9 } ! 2
+                PinkNoise.ar, 
+                WhiteNoise.ar, 
+                Crackle.ar(1.9), 
+                Latch.ar(WhiteNoise.ar, Dust.ar(LFNoise1.kr(0.3).exprange(5, 50))) * 0.3,
+                LorenzL.ar(2800) * 0.8, 
+                Dust2.ar(LFNoise1.kr(0.3).exprange(300, 2000)) * 0.7
             ]);
             
-            // [QUALITY] Keep tanh for noise character
-            noise = noise * noise_amp * 0.6; 
-            noise = LeakDC.ar(noise);         
-            noise = noise.tanh;               
+            // Apply gain and safety
+            noise = noise * noise_amp * 0.15; // 3x louder than original
+            noise = LeakDC.ar(noise);         // Fix Latch DC
+            noise = noise.tanh;               // Soft saturation instead of clip2
             
-            // [DIRT] HYBRID (Stereo Hiss, Mono Hum)
             hiss_vol = (system_dirt.pow(0.75)) * 0.03;
             hum_vol = (system_dirt.pow(3)) * 0.015;
             dust_dens = LinLin.kr(system_dirt, 0.11, 1.0, 0.05, 11);
             dust_vol = LinExp.kr(system_dirt, 0.11, 1.0, 0.01, 0.5);
             
-            dust_sig = Decay2.ar({Dust.ar(dust_dens)} ! 2, 0.001, 0.01) * {PinkNoise.ar(1)} ! 2;
+            dust_sig = Decay2.ar(Dust.ar(dust_dens), 0.001, 0.01) * PinkNoise.ar(1);
             dust_sig = dust_sig * dust_vol * (system_dirt > 0.11);
-            
-            dirt_sig = ({PinkNoise.ar(hiss_vol)} ! 2 + SinOsc.ar(50, 0, hum_vol).dup + dust_sig) * 0.5;
+            dirt_sig = (PinkNoise.ar(hiss_vol) + SinOsc.ar(50, 0, hum_vol) + dust_sig).dup * 0.5;
             
             input = In.ar(in_bus, 2) * input_amp;
             input = HPF.ar(input, 35);
@@ -230,11 +222,9 @@ Engine_Avant_lab_V : CroneEngine {
             master_trig = auto_trig + trig_man_sig;
             SendReply.ar(master_trig, "/ping_pulse", [ping_amp], 1234);
             ping_env = Decay2.ar(master_trig, 0.001, 0.2);
+            ping = SelectX.ar(ping_timbre, [LPF.ar(BrownNoise.ar, 200), PinkNoise.ar]) * ping_env * ping_amp;
             
-            // [PING] Unified Source
-            ping = LPF.ar(PinkNoise.ar, LinExp.kr(ping_timbre, 0, 1, 200, 18000)) * ping_env * ping_amp;
-            
-            source = input + noise + ping.dup + aux_feedback_in;
+            source = input + noise.dup + ping.dup + aux_feedback_in;
             local = LocalIn.ar(2); 
             input_sum = source + (local * fb_amt);
             tap_clean = input_sum;
@@ -247,27 +237,21 @@ Engine_Avant_lab_V : CroneEngine {
             shared_dust_trig = Dust.kr(tm_ero * 15);
             shared_dropout_env = Decay.kr(shared_dust_trig, 0.1);
             
-            // [TAPE] Removed redundant LeakDC wrapper
-            tape_proc = input_sum + (HPF.ar(InFeedback.ar(tape_fb_bus_idx, 2), 40) * tm_fb);
+            tape_proc = input_sum + (LeakDC.ar(HPF.ar(InFeedback.ar(tape_fb_bus_idx, 2), 40)) * tm_fb);
             
             tape_out = tape_proc.collect({ |chan|
                  var dt, sig, eh, el, drive, comp_gain, head_bump, gain_loss;
-                 // [SYSTEM] Tape 2.0s for RAM safety
-                 dt = (Lag.kr(tm_time, 0.5) + 0.01 + shared_mod).clip(0, 2.0);
-                 sig = DelayC.ar(chan, 2.0, dt);
+                 dt = (Lag.kr(tm_time, 0.5) + 0.01 + shared_mod).clip(0, 6.0);
+                 sig = DelayC.ar(chan, 6.0, dt);
                  head_bump = BPeakEQ.ar(sig, 100, 1.0, tm_sat * 3.0);
                  drive = 1.0 + (tm_sat * 3.0);
                  comp_gain = 1.0 / (1.0 + (tm_sat * 1.8));
-                 
-                 // [QUALITY] Keep tanh saturation
                  sig = asym_sat.(head_bump * drive) * comp_gain;
                  
-                 // [SAFETY] Keep Inner LeakDC for tape stop Thump protection
                  sig = LeakDC.ar(sig);
                  
-                 // [TAPE] Tuned Erosion: 110Hz low, 9kHz high
-                 eh = LinExp.kr(1.0 - tm_ero, 0.001, 1.0, 9000, 20000);
-                 el = LinExp.kr(tm_ero, 0.001, 1.0, 10, 110);
+                 eh = LinExp.kr(1.0 - tm_ero, 0.001, 1.0, 6000, 20000);
+                 el = LinExp.kr(tm_ero, 0.001, 1.0, 10, 150);
                  sig = LPF.ar(sig, eh); 
                  sig = HPF.ar(sig, el);
                  gain_loss = (shared_dropout_env * tm_ero).clip(0, 0.9);
@@ -280,11 +264,7 @@ Engine_Avant_lab_V : CroneEngine {
             tap_post_tape = sig_main_tape;
             
             rm_drift = (LFNoise2.kr(0.1) * 0.02 * rm_inst) + (LFNoise1.kr(10) * 0.005 * rm_inst);
-            // [RING MOD] Optimized: 2 Waves
-            rm_osc = Select.ar(rm_wave.min(1), [
-                SinOsc.ar(rm_freq * (1+rm_drift)), 
-                LFPulse.ar(rm_freq * (1+rm_drift))
-            ]);
+            rm_osc = Select.ar(rm_wave, [SinOsc.ar(rm_freq * (1+rm_drift)), LFTri.ar(rm_freq * (1+rm_drift)), LFPulse.ar(rm_freq * (1+rm_drift)), LFSaw.ar(rm_freq * (1+rm_drift))]);
             rm_carrier = (rm_osc * 1.5).tanh + (PinkNoise.ar(0.005 * rm_inst));
             
             rm_stereo = [sig_main_tape[0].tanh * rm_carrier, sig_main_tape[1].tanh * rm_carrier] * 2.5;
@@ -294,9 +274,6 @@ Engine_Avant_lab_V : CroneEngine {
             
             bank_in = [(sig_main_tape[0] * (1.0 - rm_mix)) + (rm_processed_l * rm_mix), (sig_main_tape[1] * (1.0 - rm_mix)) + (rm_processed_r * rm_mix)];
             bank_in = HPF.ar(bank_in, pre_hpf); bank_in = LPF.ar(bank_in, pre_lpf);
-            
-            // [FIX] GLOBAL INPUT DC PROTECTION (Double Safety)
-            bank_in = LeakDC.ar(bank_in);
 
             16.do({ |i|
                 var key_g, key_f, db, amp, f, jitter, effective_q, mod_q, raw_rq;
@@ -305,9 +282,6 @@ Engine_Avant_lab_V : CroneEngine {
                 var pan_pos, bal_l, bal_r, spread_val, swirl_osc;
                 var max_safe_rq, final_rq, squish_factor, compensation;
                 var high_boost;
-                
-                // [FILTER] Unified Detection Variable (Audio & Visuals)
-                var amp_analisis_l, amp_analisis_r;
                 
                 key_g = ("g" ++ i).asSymbol; key_f = ("f" ++ i).asSymbol;
                 db = Lag3.kr(NamedControl.kr(key_g, -60.0), fader_lag);
@@ -319,8 +293,7 @@ Engine_Avant_lab_V : CroneEngine {
                 jitter = LFNoise1.kr(1.0+(i*0.1)).range(1.0-(filter_drift*0.15), 1.0+(filter_drift*0.05));
                 
                 effective_q = (global_q * LinLin.kr(db, -60, 0, 0.5, 1.2)) / (1.0 + (f/12000));
-                // [OPTIMIZATION] LFNoise1 for filter modulation
-                mod_q = effective_q * LFNoise1.kr(0.2).range(1.0, 1.0-(filter_drift*0.3));
+                mod_q = effective_q * LFNoise2.kr(0.2).range(1.0, 1.0-(filter_drift*0.3));
                 
                 raw_rq = (1.0 / mod_q.max(0.5));
                 max_safe_rq = (2.44 - (f * 0.0001075)).max(0.01);
@@ -329,7 +302,7 @@ Engine_Avant_lab_V : CroneEngine {
                 compensation = (1.0 / squish_factor).sqrt.clip(1.0, 1.8);
                 
                 base_gain = (600 / f).pow(0.28).clip(0.1, 3.0);
-                high_boost = (f / 4000.0).max(1.0).pow(0.08); 
+                high_boost = (f / 4000.0).max(1.0).pow(0.08); // Subtle 0.08
                 input_gain = base_gain * compensation * high_boost;
                 
                 spread_val = (i%2) * 2 - 1; 
@@ -342,34 +315,14 @@ Engine_Avant_lab_V : CroneEngine {
                 band_l = BPF.ar(bank_in[0] * input_gain, f, final_rq) * (2.0 + (mod_q * 0.05)) * bal_l;
                 band_r = BPF.ar(bank_in[1] * input_gain, f, final_rq) * (2.0 + (mod_q * 0.05)) * bal_r;
                 
-                // [FIX] LeakDC INSIDE LOOP (Restored from v2055)
-                // This removes the "Ghost DC" generated by BPF movement before detection/saturation.
-                band_l = LeakDC.ar(band_l);
-                band_r = LeakDC.ar(band_r);
+                band_l = band_l * (1.0 - ((Amplitude.kr(band_l,0.01,0.3) - 0.25).max(0) * stabilizer * 2.0).tanh);
+                band_r = band_r * (1.0 - ((Amplitude.kr(band_r,0.01,0.3) - 0.25).max(0) * stabilizer * 2.0).tanh);
                 
-                // [FILTER] UNIFIED DETECTION (0.01/0.24) - Measures CLEAN signal
-                amp_analisis_l = Amplitude.kr(band_l, 0.01, 0.24);
-                amp_analisis_r = Amplitude.kr(band_r, 0.01, 0.24);
+                Out.kr(bands_bus_base + i, (Amplitude.kr(band_l) + Amplitude.kr(band_r)) * 0.5);
                 
-                // [FILTER] STABILIZER (Internal Compression) - Symmetric Tanh
-                // Using .tanh ensures we don't generate NEW DC inside the saturator
-                band_l = band_l * (1.0 - ((amp_analisis_l - 0.25).max(0) * stabilizer * 2.0).distort);
-                band_r = band_r * (1.0 - ((amp_analisis_r - 0.25).max(0) * stabilizer * 2.0).distort);
-                
-                // [FILTER] VISUALS (Independent Detector removed, using Unified)
-                // Since 'band_l' is now DC-free thanks to LeakDC, this value is accurate.
-                Out.kr(bands_bus_base + i, (amp_analisis_l + amp_analisis_r) * 0.5);
-                
-                // [FILTER] SUMMING with SYMMETRIC SATURATION
-                // We use .tanh (Symmetric) here to keep the sum clean of DC.
-                sum_l = sum_l + (band_l.tanh * amp * jitter * 2.8);
-                sum_r = sum_r + (band_r.tanh * amp * jitter * 2.8);
+                sum_l = sum_l + (LeakDC.ar(asym_sat.(band_l)) * amp * jitter * 2.8);
+                sum_r = sum_r + (LeakDC.ar(asym_sat.(band_r)) * amp * jitter * 2.8);
             });
-            
-            // [OUTPUT] ASYMMETRIC COLOR + LEAKDC (Bus Level)
-            // Apply the "Warmth" (Asym Sat) here, then clean resulting DC.
-            sum_l = LeakDC.ar(asym_sat.(sum_l));
-            sum_r = LeakDC.ar(asym_sat.(sum_r));
             
             bank_out = [sum_l, sum_r];
             sig_filters = (bank_in * (1.0 - filter_mix)) + (bank_out * filter_mix);
@@ -387,8 +340,7 @@ Engine_Avant_lab_V : CroneEngine {
                     var mod = LFNoise2.kr(Rand(0.1, 0.3)).range(0, 0.0025); 
                     CombL.ar(p, 0.2, dt + mod, reverb_time) 
                 }).sum;
-                // [REVERB] Optimized: Reduced Allpass to 2
-                2.do({ |i| combs = AllpassN.ar(combs, 0.050, Rand(0.01, 0.05), 1); });
+                4.do({ |i| combs = AllpassN.ar(combs, 0.050, Rand(0.01, 0.05), 1); });
                 combs * 0.2; 
             });
             
@@ -532,12 +484,16 @@ Engine_Avant_lab_V : CroneEngine {
             monitor_signal = Select.ar(main_src_sel, [tap_clean, tap_post_tape, tap_post_filter, tap_post_reverb]);
             master_out = monitor_signal + loop_outputs_sum;
             
-            // [BASS FOCUS] Optimized Variable Crossover (Single Filter Pair)
-            bf_freq = Select.kr(bass_focus_mode.clip(1, 3), [50, 100, 200]); 
-            bf_mono = LPF.ar(master_out, bf_freq).sum; 
-            bf_processed = HPF.ar(master_out, bf_freq) + (bf_mono ! 2);
+            bass_mono_sig_50 = LPF.ar(master_out, 50).sum;
+            bass_mono_sig_100 = LPF.ar(master_out, 100).sum;
+            bass_mono_sig_200 = LPF.ar(master_out, 200).sum;
             
-            master_out = Select.ar(bass_focus_mode > 0, [master_out, bf_processed]);
+            master_out = Select.ar(bass_focus_mode, [
+                master_out, 
+                HPF.ar(master_out, 50) + (bass_mono_sig_50 ! 2),
+                HPF.ar(master_out, 100) + (bass_mono_sig_100 ! 2),
+                HPF.ar(master_out, 200) + (bass_mono_sig_200 ! 2)
+            ]);
             
             driven_sig = master_out * comp_drive.dbamp;
             
@@ -559,19 +515,12 @@ Engine_Avant_lab_V : CroneEngine {
             report_amp_r = LagUD.kr(Peak.kr(gonio_sig[1], Impulse.kr(30)), 0, 0.1);
             Out.kr(bus_l_idx, report_amp_l);
             Out.kr(bus_r_idx, report_amp_r);
-            
-            // [SYSTEM] Calculated safely at end
-            main_mon_amp = LinLin.kr(main_mon, 0, 1, -60, 12).dbamp * (main_mon > 0.001);
             master_out = master_out * main_mon_amp;
             
             trig_meter = Impulse.kr(60);
             bands_clean_read = 16.collect({ |i| In.kr(bands_bus_base + i) });
-            
-            // [SYSTEM] Force Mix on reports to ensure OSC matrix alignment
             all_visual_data = [
-                Mix(report_amp_l), 
-                Mix(report_amp_r), 
-                Mix(report_gr), 
+                report_amp_l, report_amp_r, report_gr, 
                 pointers[0], pointers[1], pointers[2], pointers[3],
                 bands_clean_read
             ].flat;
@@ -594,8 +543,7 @@ Engine_Avant_lab_V : CroneEngine {
         ], context.xg);
 
         context.server.sync;
-        
-        // Commands
+
         this.addCommand("buffer_read", "is", { |msg| 
             var remote = NetAddr("127.0.0.1", 10111);
             var bufnum = buffers[msg[1]-1]; 
