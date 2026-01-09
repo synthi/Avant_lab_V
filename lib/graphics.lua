@@ -1,5 +1,5 @@
--- Avant_lab_V lib/graphics.lua | Version 2041
--- RESTORATION: Page 10 Active. Page 6 Motion. Page 5 Geometry Corrected (40, 31). Organic Nebulas.
+-- Avant_lab_V lib/graphics.lua | Version 2046
+-- UPDATE: Dynamic Title on Page 6 (TIME [MAIN/TAPE] / PAN)
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -31,10 +31,8 @@ local function draw_right_param_pair(label1, text1, label2, text2)
   local col2_x = 95 
   local label_y = 53
   local value_y = 60
-  
   screen.level(3); screen.move(col1_x, label_y); screen.text(label1)
   screen.level(15); screen.move(col1_x, value_y); screen.text(text1)
-  
   screen.level(3); screen.move(col2_x, label_y); screen.text(label2)
   screen.level(15); screen.move(col2_x, value_y); screen.text(text2)
 end
@@ -53,7 +51,6 @@ local function draw_goniometer_block(state)
      local frame = hist[idx]
      if frame and frame.s > 0.1 then
         local brightness = math.floor(15 / (i * 0.25 + 1))
-        
         if brightness > 1 then
            screen.level(brightness)
            local s = frame.s
@@ -76,6 +73,7 @@ end
 local function tape_segment(x, y, wobble, gap_chance)
   if random() > gap_chance then screen.level(15); screen.rect(x, y + wobble, 1, 1); screen.fill() end
 end
+
 local function raster_line(x1, y1, x2, y2, wobble, gap_chance)
    local dist = x2 - x1; if dist < 1 then return end
    for x = x1, x2 do
@@ -83,6 +81,7 @@ local function raster_line(x1, y1, x2, y2, wobble, gap_chance)
      tape_segment(x, y, wobble, gap_chance)
    end
 end
+
 local function draw_reel(x, y, phase)
   screen.level(3); screen.circle(x, y, 10); screen.fill()
   screen.level(1); screen.circle(x, y, 3); screen.fill()
@@ -93,6 +92,7 @@ local function draw_reel(x, y, phase)
     screen.circle(hx, hy, 2); screen.fill()
   end
 end
+
 local function draw_tape_head(x, y)
   screen.level(2); screen.rect(x - 8, y + 1, 2, 4); screen.fill()
   screen.rect(x + 6, y + 1, 2, 4); screen.fill()
@@ -105,11 +105,8 @@ local function draw_mixer_view(state, shift)
   screen.clear()
   local sel = state.mixer_sel
   local t = state.tracks[sel]
-  
   if state.grid_mixer_held then shift = true end
-  
   screen.level(4); screen.move(64, 8); screen.text_center("SITRAL MIXER")
-  
   screen.font_size(8)
   if not shift then
      local vol_db = util.linlin(0, 1, -60, 12, t.vol or 0)
@@ -121,9 +118,7 @@ local function draw_mixer_view(state, shift)
      screen.level(3); screen.move(50, 62); screen.text("PAN:"); screen.level(15); screen.move(68, 62); screen.text(string.format("%.2f", t.l_pan or 0))
      screen.level(3); screen.move(95, 62); screen.text("WID:"); screen.level(15); screen.move(110, 62); screen.text(string.format("%.2f", t.l_width or 1))
   end
-  
   local x_base = 25; local spacing = 26; local y_top = 17; local y_bot = 49; local h_rail = y_bot - y_top
-  
   for i=1, 4 do
      local x = x_base + ((i-1) * spacing); local trk = state.tracks[i]; local is_sel = (i == sel)
      if is_sel then screen.level(1); screen.rect(x-12, y_top-6, 24, h_rail+11); screen.stroke() end
@@ -131,13 +126,11 @@ local function draw_mixer_view(state, shift)
      local vol = trk.vol or 0.9; local y_vol = y_bot - (vol * h_rail)
      screen.level(is_sel and 15 or 8); screen.rect(x - 2, y_vol - 1, 5, 3); screen.fill()
      screen.level(0); screen.pixel(x, y_vol); screen.fill()
-
      local low = trk.l_low or 0; local high = trk.l_high or 0; local y_mid = y_top + (h_rail/2)
      screen.level(3); screen.move(x-6, y_top+5); screen.line(x-6, y_bot-5); screen.stroke()
      local y_low = y_mid - (clamp(low, -18, 18) * 0.33); screen.level(is_sel and 15 or 6); screen.pixel(x-6, y_low); screen.fill()
      screen.level(3); screen.move(x+6, y_top+5); screen.line(x+6, y_bot-5); screen.stroke()
      local y_high = y_mid - (clamp(high, -18, 18) * 0.33); screen.level(is_sel and 15 or 6); screen.pixel(x+6, y_high); screen.fill()
-     
      local f = trk.l_filter or 0.5
      if math.abs(f - 0.5) > 0.01 then
         screen.level(15); local y_center = y_top + (h_rail/2); local dist = math.abs(f - 0.5); local h_cut = (dist / 0.5) * (h_rail / 2)
@@ -173,17 +166,13 @@ end
 local function draw_master_view(state, shift)
    screen.clear()
    screen.font_size(8)
-   
    if not shift then draw_left_e1("MONITOR", get_txt("main_mon")) 
    else draw_left_e1("CEIL", get_txt("limiter_ceil")) end
-   
    draw_vertical_divider(); draw_header_right("MASTER"); draw_goniometer_block(state)
-   
    local cx = 50; local w = 52; local y_start = 28 
    local gr = state.comp_gr or 0; local gr_norm = clamp(gr * 4, 0, 1) 
    screen.level(3); screen.move(cx - 38, y_start - 4); screen.text_right("GR")
    draw_plasma_bar_fluid(cx - 30, y_start - 7, w, 2, gr_norm, true, true)
-   
    local amp_l_db = 20 * math.log10(state.amp_l > 0.0001 and state.amp_l or 0.0001)
    local amp_r_db = 20 * math.log10(state.amp_r > 0.0001 and state.amp_r or 0.0001)
    local l_norm = linlin(-60, 0, 0, 1, amp_l_db); l_norm = clamp(l_norm, 0, 1)
@@ -192,18 +181,12 @@ local function draw_master_view(state, shift)
    draw_plasma_bar_fluid(cx - 30, y_start + 1, w, 4, l_norm, false, false)
    screen.level(3); screen.move(cx - 38, y_start + 11); screen.text_right("R")
    draw_plasma_bar_fluid(cx - 30, y_start + 8, w, 4, r_norm, false, false)
-   
    local bf = params:get("bass_focus")
    local txt_bf = {"OFF", "50Hz", "100Hz", "200Hz"}
    screen.level(3); screen.move(0, 53); screen.text("MONO BASS")
    screen.level(bf > 1 and 15 or 6); screen.move(0, 60); screen.text(txt_bf[bf] or "OFF")
-   
-   if not shift then
-      draw_right_param_pair("THRESH", get_txt("bus_thresh"), "RATIO", get_txt("bus_ratio"))
-   else
-      draw_right_param_pair("BAL", get_txt("balance"), "DRIVE", get_txt("bus_drive"))
-   end
-   
+   if not shift then draw_right_param_pair("THRESH", get_txt("bus_thresh"), "RATIO", get_txt("bus_ratio"))
+   else draw_right_param_pair("BAL", get_txt("balance"), "DRIVE", get_txt("bus_drive")) end
    screen.update()
 end
 
@@ -234,8 +217,7 @@ function Graphics.draw(state)
         screen.move(123, y); screen.text_right(txt)
      end
      screen.level(3); screen.move(5, 60); screen.text("E2:Sel  K2:Load  K3:Save")
-     screen.update()
-     return
+     screen.update(); return
   end
   
   if page == 7 then
@@ -243,23 +225,19 @@ function Graphics.draw(state)
      local sel = state.track_sel or 1
      local t = state.tracks[sel]
      screen.level(3); screen.move(55, 8); screen.text("DEGRADE"); screen.level(6); screen.move(55, 15); screen.text(string.format("%.2f", t.wow_macro or 0))
-     
      if not shift then
        local vol_db = util.linlin(0, 1, -60, 12, t.vol or 0)
        draw_left_e1("VOL", string.format("%.1fdB", vol_db))
-       
        local speed = t.speed or 1; local dir_sym = speed < 0 and "<<" or ">>"
        screen.level(3); screen.move(55, 53); screen.text("SPEED"); screen.level(15); screen.move(55, 60); screen.text(string.format("%s %.2f", dir_sym, math.abs(speed)))
        screen.level(3); screen.move(95, 53); screen.text("DUB"); screen.level(15); screen.move(95, 60); screen.text(string.format("%.0f%%", (t.overdub or 0.5)*100))
      else
        local rec_db = t.rec_level or 0
        draw_left_e1("REC IN", string.format("%.1fdB", rec_db))
-       
        local start_p = floor((t.loop_start or 0) * 100); local end_p = floor((t.loop_end or 1) * 100)
        draw_right_param_pair("START", start_p .. "%", "END", end_p .. "%")
      end
      draw_vertical_divider(); draw_header_right("TRACK " .. sel); draw_goniometer_block(state)
-     
      local x_base = 0 
      for i=1, 4 do
         local trk = state.tracks[i]; local y_off = 20 + (i * 9)
@@ -286,18 +264,11 @@ function Graphics.draw(state)
      screen.clear(); screen.level(4); screen.font_size(8); screen.move(0, 8)
      local s_name = Scales.list[state.preview_scale_idx].name
      local root_txt = note_names[params:get("root_note")] or "?"
-     
-     if s_name == state.loaded_scale_name then 
-        screen.text(s_name .. " (" .. root_txt .. ")") 
-     else 
-        screen.level(15)
-        screen.text("K3: " .. s_name .. " >") 
-     end
-     
+     if s_name == state.loaded_scale_name then screen.text(s_name .. " (" .. root_txt .. ")") 
+     else screen.level(15); screen.text("K3: " .. s_name .. " >") end
      local lfo_str = string.format("%.2f", params:get("lfo_depth"))
      screen.move(128, 8); if shift then screen.level(15) else screen.level(3) end; screen.text_right(lfo_str)
      screen.move(128 - screen.text_extents(lfo_str) - 4, 8); screen.level(3); screen.text_right("LFO:")
-     
      local floor_y = 60
      for i=1, 16 do
         local x = 2 + ((i-1) * 5)
@@ -314,7 +285,6 @@ function Graphics.draw(state)
         if h_frac > 0.1 then local tip_b = floor(h_frac * 15); if tip_b > 0 then screen.level(tip_b); screen.pixel(x+1, floor_y - h_int - 1); screen.fill() end end
      end
      draw_vertical_divider(); draw_goniometer_block(state)
-     
      local div_x = 84; local col1_x = div_x + 4; local col2_x = div_x + 24
      if not shift then
         screen.move(col1_x, 53); screen.level(3); screen.text("FB")
@@ -327,7 +297,6 @@ function Graphics.draw(state)
         screen.move(col2_x, 53); screen.level(3); screen.text("ROOT")
         screen.move(col2_x, 60); screen.level(15); screen.text(get_txt("root_note"))
      end
-     
      screen.update(); return
   end
 
@@ -338,17 +307,15 @@ function Graphics.draw(state)
         draw_right_param_pair("HPF", string.format("%.1f", params:get("pre_hpf")), "LPF", string.format("%.1f", params:get("pre_lpf")))
     else 
         draw_left_e1("STAB", get_txt("stabilizer")); 
-        draw_right_param_pair("DRIFT", get_txt("filter_drift"), "SPR", get_txt("spread")) 
+        draw_right_param_pair("DRIFT", get_txt("filter_drift"), "XFEED", get_txt("crossfeed")) 
     end
     local area_w = 84; local cy = 15 + (45 / 2) - 4 
-    
     local h = state.heads.filter; local len = state.FILTER_LEN 
     local total_energy = 0; for i=1,16 do total_energy = total_energy + (state.band_levels[i] or 0) end
     anim_phase_osc = (anim_phase_osc or 0) + 0.1
     state.filter_history[h].amp = clamp(total_energy * 20, 2, 18)
     state.filter_history[h].phase = anim_phase_osc
     state.heads.filter = (h % len) + 1
-
     for t=0, len-1 do
        local idx = (h - 1 - t - 1) % len + 1
        local frame = state.filter_history[idx]
@@ -372,7 +339,6 @@ function Graphics.draw(state)
         draw_left_e1("DIRT", get_txt("system_dirt")); 
         draw_right_param_pair("FREQ", string.format("%.1f", params:get("rm_freq")), "NOISE", get_txt("noise_amp")) 
     end
-    
     local area_x = 0; local area_w = 84; local cy = 30
     screen.level(10)
     local rm = params:get("rm_mix") or 0; local rm_f = params:get("rm_freq") or 100
@@ -406,10 +372,8 @@ function Graphics.draw(state)
   end
 
   if page == 5 then
-    -- [RESTORED v2041] Page 5: Corrected Geometry (40,31) + Organic Nebula Logic
     screen.clear()
     local mode = params:get("ping_mode") or 1
-    
     if mode == 1 then 
       if not shift then draw_left_e1("RATE", get_txt("ping_rate")); draw_right_param_pair("JITTER", get_txt("ping_jitter"), "TIMBRE", get_txt("ping_timbre"))
       else draw_left_e1("RATE F", get_txt("ping_rate")); draw_right_param_pair("FINE", get_txt("ping_rate"), "LEVEL", get_txt("ping_amp")) end
@@ -417,141 +381,86 @@ function Graphics.draw(state)
       if not shift then draw_left_e1("STEPS", get_txt("ping_steps")); draw_right_param_pair("HITS", get_txt("ping_hits"), "DIV", get_txt("ping_div"))
       else draw_left_e1("TIMBRE", get_txt("ping_timbre")); draw_right_param_pair("JITTER", get_txt("ping_jitter"), "LEVEL", get_txt("ping_amp")) end
     end
-
-    -- [FIX v2041] Geometry shifted -3px Left, -3px Up
     local cx, cy = 40, 31
     local rx, ry = 40, 12
     local current_amp = amp_l * 30 
-    
-    -- Safety Clipping
     local function safe_pixel(x, y)
-        if x >= 0 and x <= 84 and y >= 15 and y <= 53 then
-            screen.pixel(x, y)
-        end
+        if x >= 0 and x <= 84 and y >= 15 and y <= 53 then screen.pixel(x, y) end
     end
-
     if mode == 1 then 
-       -- MODE FREE: Lissajous/Spiral
        local rate = params:get("ping_rate") or 1
        local log_speed = (rate ^ 0.9) * 0.3
        local t_val = now * 10 * log_speed
        local jit_amount = params:get("ping_jitter") or 0
        local jitter = 1.0 + ((random() - 0.5) * jit_amount * 0.12)
        local drift = now * 0.2
-       
        local x = cx + sin(t_val + drift) * (rx * jitter)
        local y = cy + sin(2 * t_val) * ((ry + current_amp) * jitter) 
-       
        local head_size = 1 + floor(current_amp * 0.8)
        screen.level(15)
-       if head_size > 1 then
-           screen.circle(x, y, head_size)
-           screen.fill()
-       else
-           screen.pixel(x, y)
-           screen.fill()
-       end
-       
+       if head_size > 1 then screen.circle(x, y, head_size); screen.fill() else screen.pixel(x, y); screen.fill() end
        local h = state.heads.time 
-       state.time_history[h].ph = x 
-       state.time_history[h].r = y
+       state.time_history[h].ph = x; state.time_history[h].r = y
        state.heads.time = (h % state.FILTER_LEN) + 1
-       
        for i=0, state.FILTER_LEN-1 do
           local idx = (h - 1 - i - 1) % state.FILTER_LEN + 1
           local old_x = state.time_history[idx].ph
           local old_y = state.time_history[idx].r
           local b = floor(15 / (i * 0.08 + 1))
           if b > 1 and old_x ~= 0 then
-             screen.level(math.random(b-2, b)); 
-             safe_pixel(old_x, old_y); 
-             screen.fill()
+             screen.level(math.random(b-2, b)); safe_pixel(old_x, old_y); screen.fill()
           end
        end
-
     else 
-       -- MODE EUCLIDEAN
        local steps = params:get("ping_steps") or 16
        local current = state.ping_step_counter
        local pattern = state.ping_pattern
        local is_hit_now = false
-       
        if pattern and pattern[current] then is_hit_now = true end
-
-       -- [FIX v2041] Center Nebula Injection (Restored at cx, cy)
        if is_hit_now then
            local h = state.heads.time
-           local p_count = 30 -- Good density
+           local p_count = 30 
            for p=1, p_count do 
                local angle = random() * 2 * pi
-               local dist = random() * 2 -- Spawn compact in center
+               local dist = random() * 2 
                state.time_history[h].ph = cx + cos(angle)*dist
                state.time_history[h].r = cy + sin(angle)*dist
                state.heads.time = (state.heads.time % state.FILTER_LEN) + 1
                h = state.heads.time
            end
        end
-       
-       -- Draw Nebula (Expands out)
        local h_ptr = state.heads.time
        for i=0, state.FILTER_LEN-1 do
           local idx = (h_ptr - 1 - i - 1) % state.FILTER_LEN + 1
           local old_x = state.time_history[idx].ph
           local old_y = state.time_history[idx].r
-          
           if old_x ~= 0 then
-              -- Radial Expansion
-              old_x = old_x + (old_x - cx) * 0.15 
-              old_y = old_y + (old_y - cy) * 0.15
-              state.time_history[idx].ph = old_x
-              state.time_history[idx].r = old_y
+              old_x = old_x + (old_x - cx) * 0.15; old_y = old_y + (old_y - cy) * 0.15
+              state.time_history[idx].ph = old_x; state.time_history[idx].r = old_y
           end
-
-          -- [FIX v2041] Organic Fade
           local b = floor(10 * math.exp(-i * 0.15)) 
           if b > 0 and old_x ~= 0 then
-             screen.level(math.random(1, b)); 
-             safe_pixel(old_x, old_y); 
-             screen.fill()
+             screen.level(math.random(1, b)); safe_pixel(old_x, old_y); screen.fill()
           end
        end
-
-       -- Draw Clock Points
        for i=1, steps do
           local theta = ((i-1)/steps) * 6.28 - 1.57
           local px_base = cx + cos(theta) * rx
           local py_base = cy + sin(theta) * (ry + (current_amp * 0.5)) 
-          
           local b = 2
           if pattern and pattern[i] then b = 6 end 
-          if i == current then 
-            b = 13
-            if is_hit_now then b = 15 end
-          end 
-          
+          if i == current then b = 13; if is_hit_now then b = 15 end end 
           screen.level(b)
           if b > 2 then
-             -- [FIX v2041] Organic Clusters (Not Square, Not Huge)
-             local scatter = 1.5
-             local count = 20
-             if i==current then 
-                scatter = 3.0 -- Larger cursor
-                count = 40    -- Dense cursor
-             end
+             local scatter = 1.5; local count = 20
+             if i==current then scatter = 3.0; count = 40 end
              for d=1, count do
-                 -- Polar distribution for organic look
-                 local ang = random() * 2 * pi
-                 local rad = random() * scatter
-                 safe_pixel(px_base + cos(ang)*rad, py_base + sin(ang)*rad)
-                 screen.fill()
+                 local ang = random() * 2 * pi; local rad = random() * scatter
+                 safe_pixel(px_base + cos(ang)*rad, py_base + sin(ang)*rad); screen.fill()
              end
-          else
-             screen.pixel(px_base, py_base)
-             screen.fill()
-          end
+          else screen.pixel(px_base, py_base); screen.fill() end
        end
     end
-    
     draw_vertical_divider(); draw_goniometer_block(state); draw_header_right("PING"); screen.update(); return
   end
 
@@ -562,33 +471,50 @@ function Graphics.draw(state)
     if not shift then
       draw_left_e1("SEQ", get_txt("seq_rate"..suffix))
       draw_right_param_pair("SLEW", get_txt("fader_slew"), "MORPH", get_txt("preset_morph"..suffix))
-    else draw_left_e1("SEQ F", get_txt("seq_rate"..suffix)); draw_right_param_pair("MORPH", get_txt("preset_morph"..suffix), "SEQ Q", get_txt("seq_rate"..suffix)) end
+    else 
+      draw_left_e1("SPRD", get_txt("spread")); 
+      draw_right_param_pair("RATE", get_txt("swirl_rate"), "DPTH", get_txt("swirl_depth")) 
+    end
     
     local cx = 84 * 0.4; local cy = 15 + 45/2
     anim_phase_time = (anim_phase_time or 0) + ((params:get("seq_rate"..suffix) or 0) * 0.2) + 0.005
     
+    local sw_rate = params:get("swirl_rate") or 0.1
+    local sw_depth = params:get("swirl_depth") or 0.0
+    local spread = params:get("spread") or 0.0
+    local orbit_speed = sw_rate * 0.2
+    
     local h = state.heads.time; local len = state.FILTER_LEN 
     state.time_history[h].ph = anim_phase_time
-    local breath = sin(now * 0.5) * 4
-    state.time_history[h].r = (12 + breath) + (amp_l * 15)
-    state.time_history[h].m = params:get("preset_morph"..suffix) or 0
+    state.time_history[h].r = (12 + (sin(now * 0.5) * 4)) + (amp_l * 15)
+    state.time_history[h].m = orbit_speed 
     state.heads.time = (h % len) + 1
+    
+    local rot_acc = (now * orbit_speed * 10) 
     
     for i=0, len-1 do
        local idx = (h - 1 - i - 1) % len + 1
        local frame = state.time_history[idx]
-       local brightness = floor(15 / (i * 0.05 + 1)) 
-       if brightness < 2 then brightness = 2 end 
+       local brightness = floor(15 / (i * 0.05 + 1)); if brightness < 2 then brightness = 2 end 
        screen.level(brightness)
-       for t = 0, 6.28, 0.1 do
-         local r = frame.r + cos(t * (2 + floor(frame.m*2))) * (frame.m * 3)
-         local ang = t + frame.ph
-         screen.pixel(cx + cos(ang)*r, cy + sin(ang)*r)
+       
+       for t = 0, 6.28, 0.2 do
+         local deformation = sin(t * 3 + rot_acc) * (sw_depth * 8)
+         local r_final = frame.r + deformation
+         local ang = t + frame.ph + rot_acc
+         
+         screen.pixel(cx + cos(ang)*r_final, cy + sin(ang)*r_final)
+         
+         if spread > 0.1 then
+             local offset_ang = ang + (spread * 0.5)
+             screen.pixel(cx + cos(offset_ang)*r_final, cy + sin(offset_ang)*r_final)
+         end
        end
        screen.fill()
     end
     draw_vertical_divider(); draw_goniometer_block(state); 
-    screen.level(15); screen.move(128, 8); screen.text_right("TIME [" .. focus .. "]")
+    -- [UPDATE v2046] Dynamic Title Fix
+    screen.level(15); screen.move(128, 8); screen.text_right("TIME [" .. focus .. "] / PAN")
     screen.update(); return
   end
 end
