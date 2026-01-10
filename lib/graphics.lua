@@ -1,5 +1,5 @@
--- Avant_lab_V lib/graphics.lua | Version 2046
--- UPDATE: Dynamic Title on Page 6 (TIME [MAIN/TAPE] / PAN)
+-- Avant_lab_V lib/graphics.lua | Version 2052
+-- UPDATE: Page 3 Labels (Noise Type String) + P6 Dynamic Title
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -334,10 +334,16 @@ function Graphics.draw(state)
 
   if page == 3 then
     screen.clear()
-    if not shift then draw_left_e1("REV", get_txt("reverb_mix")); draw_right_param_pair("RMIX", get_txt("rm_mix"), "MON", get_txt("main_mon"))
+    -- [UPDATE v2052] Page 3 Remap
+    if not shift then 
+        draw_left_e1("REV", get_txt("reverb_mix")); 
+        draw_right_param_pair("RMIX", get_txt("rm_mix"), "FREQ", string.format("%.1f", params:get("rm_freq")))
     else 
         draw_left_e1("DIRT", get_txt("system_dirt")); 
-        draw_right_param_pair("FREQ", string.format("%.1f", params:get("rm_freq")), "NOISE", get_txt("noise_amp")) 
+        -- Noise String from params
+        local noise_names = {"PINK", "WHITE", "CRACKLE", "RAIN", "LORENZ", "GRIT"}
+        local n_idx = util.clamp(params:get("noise_type"), 1, #noise_names)
+        draw_right_param_pair("TYPE", noise_names[n_idx], "NOISE", get_txt("noise_amp")) 
     end
     local area_x = 0; local area_w = 84; local cy = 30
     screen.level(10)
@@ -513,7 +519,6 @@ function Graphics.draw(state)
        screen.fill()
     end
     draw_vertical_divider(); draw_goniometer_block(state); 
-    -- [UPDATE v2046] Dynamic Title Fix
     screen.level(15); screen.move(128, 8); screen.text_right("TIME [" .. focus .. "] / PAN")
     screen.update(); return
   end
