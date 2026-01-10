@@ -1,5 +1,5 @@
--- Avant_lab_V lib/loopers.lua | Version 321.1
--- UPDATE: Added Physical Buffer Clear (Fixes Ghost Audio on Rec Start)
+-- Avant_lab_V lib/loopers.lua | Version 321.2
+-- UPDATE: Auto-Clear Buffer on Rec Start (Fixes Rec->Dub Ghost Audio)
 
 local Loopers = {}
 local util = require 'util'
@@ -124,7 +124,7 @@ function Loopers.clear(idx, state)
    t.is_dirty = false
    t.file_path = nil
    
-   -- [UPDATE v321.1] Physical Buffer Zeroing
+   -- Physical Buffer Zeroing (Manual Clear)
    if engine.clear then engine.clear(idx) end
    
    Loopers.refresh(idx, state)
@@ -177,6 +177,10 @@ function Loopers.transport_rec(state, idx, action_type)
       
       if t.state == 1 then 
          -- Empty -> Record
+         
+         -- [CRITICAL FIX] Ensure physical buffer is clean before recording starts
+         if engine.clear then engine.clear(idx) end
+         
          t.state = 2
          t.start_abs_time = now
          state.tape_filenames[idx] = nil 
