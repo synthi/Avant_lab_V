@@ -1,5 +1,5 @@
--- Avant_lab_V lib/controls.lua | Version 2050
--- UPDATE: Noise Encoder Limit (0-5)
+-- Avant_lab_V lib/controls.lua | Version 2055
+-- UPDATE: RM Wave Toggle Fixed (2 states)
 
 local Controls = {}
 local fileselect = require 'fileselect'
@@ -59,7 +59,6 @@ Pages[2] = {
          elseif n==2 then params:delta("pre_hpf", d)
          elseif n==3 then params:delta("pre_lpf", d) end
       else
-         -- [UPDATE v2044] Stabilizer / Drift / Crossfeed
          if n==1 then params:delta("stabilizer", d*0.5)
          elseif n==2 then params:delta("filter_drift", d*0.5)
          elseif n==3 then params:delta("crossfeed", d*0.5) end
@@ -79,20 +78,22 @@ Pages[2] = {
 Pages[3] = {
    enc = function(n, d, s)
       if not (s.k1_held or s.mod_shift_16 or s.grid_shift_active) then
+         -- Main: Rev/RM Mix/RM Freq
          if n==1 then params:delta("reverb_mix", d*0.5)
          elseif n==2 then params:delta("rm_mix", d*0.5)
-         elseif n==3 then params:delta("main_mon", d*0.5) end
+         elseif n==3 then params:delta("rm_freq", d*0.1) end
       else
+         -- Shift: Dirt/Noise Type/Noise Amp
          if n==1 then params:delta("system_dirt", d)
-         elseif n==2 then params:delta("rm_freq", d*0.1)
+         elseif n==2 then params:delta("noise_type", d)
          elseif n==3 then params:delta("noise_amp", d*0.5) end
       end
    end,
    key = function(n, z, s)
       if n==2 and z==1 then 
-         local w = params:get("rm_wave"); w = w%4 + 1; params:set("rm_wave", w)
+         -- [UPDATE v2055] Fixed toggle for 2 waves
+         local w = params:get("rm_wave"); w = w%2 + 1; params:set("rm_wave", w)
       elseif n==3 and z==1 then 
-         -- [UPDATE v2050] Limit 6 Noise Types (0-5)
          local nt = params:get("noise_type"); params:set("noise_type", nt == 5 and 0 or nt + 1)
       end
    end
@@ -161,7 +162,6 @@ Pages[6] = {
          elseif n==2 then params:delta("fader_slew", d)
          elseif n==3 then params:delta("preset_morph"..suffix, d) end
       else
-         -- [UPDATE v2044] Swirl Controls
          if n==1 then params:delta("spread", d*0.5)
          elseif n==2 then params:delta("swirl_rate", d*0.5)
          elseif n==3 then params:delta("swirl_depth", d*0.5) end
