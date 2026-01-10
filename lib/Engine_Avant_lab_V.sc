@@ -1,5 +1,5 @@
-// lib/Engine_Avant_lab_V.sc | Version 4006
-// UPDATE: v4006 - Absolute Stereo Separation (Double Select) - No Nested Arrays
+// lib/Engine_Avant_lab_V.sc | Version 4010
+// UPDATE: Gold Master. Base v4006 (Safe Arrays). Sym Bands / Asym Bus. Unified Detectors. Optimized Bass Focus.
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -54,6 +54,7 @@ Engine_Avant_lab_V : CroneEngine {
             var trig_meter, all_visual_data;
             var report_amp_l, report_amp_r, report_gr;
             var sum_l = 0.0, sum_r = 0.0;
+            // [SYSTEM] Pointers initialized to prevent OSC shift
             var pointers = Array.fill(4, { DC.kr(0) });
             var bands_clean_read;
 
@@ -93,7 +94,7 @@ Engine_Avant_lab_V : CroneEngine {
             var driven_sig, master_glue, gr_sig;
             var bf_freq, bf_mono, bf_processed;
             
-            // Separation Variables (v4006)
+            // Separation Variables
             var noise_L, noise_R;
             var dust_L, dust_R;
             
@@ -154,6 +155,9 @@ Engine_Avant_lab_V : CroneEngine {
             filter_drift = \filter_drift.kr(0);
             main_mon = \main_mon.kr(0.833);
             
+            // [FIX] Main Mon Amp calculated early
+            main_mon_amp = LinLin.kr(main_mon, 0, 1, -60, 12).dbamp * (main_mon > 0.001);
+            
             l_rec = [\l1_rec.kr(0), \l2_rec.kr(0), \l3_rec.kr(0), \l4_rec.kr(0)];
             l_play = [\l1_play.kr(0), \l2_play.kr(0), \l3_play.kr(0), \l4_play.kr(0)];
             l_vol = [\l1_vol.kr(0), \l2_vol.kr(0), \l3_vol.kr(0), \l4_vol.kr(0)];
@@ -189,13 +193,13 @@ Engine_Avant_lab_V : CroneEngine {
             
             aux_feedback_in = InFeedback.ar(aux_return_bus_idx, 2).tanh; 
             
-            // [v4006] NOISE RE-ARCHITECTURE (Explicit Double Select - No Macros)
+            // [NOISE] Explicit Separation (Safe Arrays)
             noise_L = Select.ar(noise_type, [
                 PinkNoise.ar,
                 WhiteNoise.ar * 0.5,
                 Crackle.ar(1.9),
                 Latch.ar(WhiteNoise.ar, Dust.ar(LFNoise1.kr(0.3).exprange(5, 50))) * 0.4,
-                LFNoise1.ar(500) * 0.7,
+                LFNoise1.ar(500) * 0.7, // Growl
                 Dust2.ar(LFNoise1.kr(0.3).exprange(300, 2000)) * 0.9
             ]);
 
@@ -210,11 +214,12 @@ Engine_Avant_lab_V : CroneEngine {
 
             noise = [noise_L, noise_R];
 
-            noise = noise * noise_amp * 0.25; 
+            // [MOD] Target Gain 0.6
+            noise = noise * noise_amp * 0.6; 
             noise = LeakDC.ar(noise);         
             noise = noise.tanh;               
             
-            // [v4006] DIRT RE-ARCHITECTURE (Explicit Stereo)
+            // [DIRT] Explicit Stereo
             hiss_vol = (system_dirt.pow(0.75)) * 0.03;
             hum_vol = (system_dirt.pow(3)) * 0.015;
             dust_dens = LinLin.kr(system_dirt, 0.11, 1.0, 0.05, 11);
@@ -237,6 +242,8 @@ Engine_Avant_lab_V : CroneEngine {
             master_trig = auto_trig + trig_man_sig;
             SendReply.ar(master_trig, "/ping_pulse", [ping_amp], 1234);
             ping_env = Decay2.ar(master_trig, 0.001, 0.2);
+            
+            // [PING] Unified Pink+Filter
             ping = LPF.ar(PinkNoise.ar, LinExp.kr(ping_timbre, 0, 1, 200, 18000)) * ping_env * ping_amp;
             
             source = input + noise + ping.dup + aux_feedback_in;
@@ -263,8 +270,8 @@ Engine_Avant_lab_V : CroneEngine {
                  comp_gain = 1.0 / (1.0 + (tm_sat * 1.8));
                  sig = asym_sat.(head_bump * drive) * comp_gain;
                  sig = LeakDC.ar(sig);
-                 eh = LinExp.kr(1.0 - tm_ero, 0.001, 1.0, 9000, 20000);
-                 el = LinExp.kr(tm_ero, 0.001, 1.0, 10, 110);
+                 eh = LinExp.kr(1.0 - tm_ero, 0.001, 1.0, 9000, 20000); // 9kHz
+                 el = LinExp.kr(tm_ero, 0.001, 1.0, 10, 110); // 110Hz
                  sig = LPF.ar(sig, eh); 
                  sig = HPF.ar(sig, el);
                  gain_loss = (shared_dropout_env * tm_ero).clip(0, 0.9);
@@ -277,6 +284,7 @@ Engine_Avant_lab_V : CroneEngine {
             tap_post_tape = sig_main_tape;
             
             rm_drift = (LFNoise2.kr(0.1) * 0.02 * rm_inst) + (LFNoise1.kr(10) * 0.005 * rm_inst);
+            // [RING MOD] 2 Waves (Sine, Pulse)
             rm_osc = Select.ar(rm_wave.min(1), [
                 SinOsc.ar(rm_freq * (1+rm_drift)), 
                 LFPulse.ar(rm_freq * (1+rm_drift))
@@ -311,6 +319,7 @@ Engine_Avant_lab_V : CroneEngine {
                 jitter = LFNoise1.kr(1.0+(i*0.1)).range(1.0-(filter_drift*0.15), 1.0+(filter_drift*0.05));
                 
                 effective_q = (global_q * LinLin.kr(db, -60, 0, 0.5, 1.2)) / (1.0 + (f/12000));
+                // [MOD] LFNoise1 Mod
                 mod_q = effective_q * LFNoise1.kr(0.2).range(1.0, 1.0-(filter_drift*0.3));
                 
                 raw_rq = (1.0 / mod_q.max(0.5));
@@ -333,21 +342,26 @@ Engine_Avant_lab_V : CroneEngine {
                 band_l = BPF.ar(bank_in[0] * input_gain, f, final_rq) * (2.0 + (mod_q * 0.05)) * bal_l;
                 band_r = BPF.ar(bank_in[1] * input_gain, f, final_rq) * (2.0 + (mod_q * 0.05)) * bal_r;
                 
-                band_l = LeakDC.ar(band_l);
-                band_r = LeakDC.ar(band_r);
+                // [MOD] SYMMETRIC SATURATION INSIDE
+                band_l = band_l.tanh;
+                band_r = band_r.tanh;
                 
+                // [MOD] UNIFIED DETECTOR (0.01 / 0.24)
                 amp_analisis_l = Amplitude.kr(band_l, 0.01, 0.24);
                 amp_analisis_r = Amplitude.kr(band_r, 0.01, 0.24);
                 
+                // [MOD] STABILIZER (Using Unified)
                 band_l = band_l * (1.0 - ((amp_analisis_l - 0.25).max(0) * stabilizer * 2.0).distort);
                 band_r = band_r * (1.0 - ((amp_analisis_r - 0.25).max(0) * stabilizer * 2.0).distort);
                 
                 Out.kr(bands_bus_base + i, (amp_analisis_l + amp_analisis_r) * 0.5);
                 
-                sum_l = sum_l + (band_l.tanh * amp * jitter * 2.8);
-                sum_r = sum_r + (band_r.tanh * amp * jitter * 2.8);
+                // [MOD] Summing (No extra tanh here, done at top of loop)
+                sum_l = sum_l + (band_l * amp * jitter * 2.8);
+                sum_r = sum_r + (band_r * amp * jitter * 2.8);
             });
             
+            // [MOD] ASYMMETRIC COLOR + LEAKDC AT OUTPUT BUS
             sum_l = LeakDC.ar(asym_sat.(sum_l));
             sum_r = LeakDC.ar(asym_sat.(sum_r));
             
@@ -451,17 +465,14 @@ Engine_Avant_lab_V : CroneEngine {
                 Out.kr(pos_bus_base + i, pointers[i]); 
                 
                 dist_start = (ptr - start_pos).abs; dist_end = (end_pos - ptr).abs;
-                
                 fade_in_user = (dist_start / fade_len_user).clip(0, 1).pow(1.5); 
                 fade_out_user = (dist_end / fade_len_user).clip(0, 1);
                 gain_out_user = (fade_in_user.min(fade_out_user) * 0.5 * pi).sin;
-                
                 fade_in_micro = (dist_start / fade_len_micro).clip(0, 1);
                 fade_out_micro = (dist_end / fade_len_micro).clip(0, 1);
                 gain_micro = fade_in_micro.min(fade_out_micro).pow(0.5);
                 
                 play_sig = BufRd.ar(2, b_idx, ptr, 1, 2);
-                
                 deg_curve = trk_deg.pow(3.0); 
                 corrosion_am = 1.0 - (LFNoise2.kr(8 + (i*2)).unipolar * deg_curve * 0.6);
                 play_sig = play_sig * corrosion_am;
@@ -514,11 +525,10 @@ Engine_Avant_lab_V : CroneEngine {
             monitor_signal = Select.ar(main_src_sel, [tap_clean, tap_post_tape, tap_post_filter, tap_post_reverb]);
             master_out = monitor_signal + loop_outputs_sum;
             
-            // [FIX v4006] Bus Protection + Safe Stereo Logic
+            // [MOD] BASS FOCUS OPTIMIZED (Variable Crossover)
             bf_freq = Select.kr(bass_focus_mode.clip(1, 3), [50, 100, 200]); 
             bf_mono = LPF.ar(master_out, bf_freq).sum; 
             bf_processed = HPF.ar(master_out, bf_freq) + (bf_mono ! 2);
-            
             master_out = Select.ar(bass_focus_mode > 0, [master_out, bf_processed]);
             
             driven_sig = master_out * comp_drive.dbamp;
@@ -532,9 +542,9 @@ Engine_Avant_lab_V : CroneEngine {
             );
             
             gr_sig = (Peak.kr(driven_sig, Impulse.kr(20)) - Peak.kr(master_glue, Impulse.kr(20))).max(0);
-            
-            // [FIX v4006] Mix() wrappers
             report_gr = LagUD.kr(gr_sig.sum, 0, 0.1);
+            
+            // [MOD] Mix() Safety Wrapper
             Out.kr(gr_bus_idx, Mix(report_gr));
             
             master_glue = Balance2.ar(master_glue[0], master_glue[1], balance);
@@ -545,15 +555,16 @@ Engine_Avant_lab_V : CroneEngine {
             report_amp_l = LagUD.kr(Peak.kr(gonio_sig[0], Impulse.kr(30)), 0, 0.1);
             report_amp_r = LagUD.kr(Peak.kr(gonio_sig[1], Impulse.kr(30)), 0, 0.1);
             
+            // [MOD] Mix() Safety Wrapper
             Out.kr(bus_l_idx, Mix(report_amp_l));
             Out.kr(bus_r_idx, Mix(report_amp_r));
             
-            main_mon_amp = LinLin.kr(main_mon, 0, 1, -60, 12).dbamp * (main_mon > 0.001);
             master_out = master_out * main_mon_amp;
             
             trig_meter = Impulse.kr(60);
             bands_clean_read = 16.collect({ |i| In.kr(bands_bus_base + i) });
             
+            // [MOD] Mix() Safety Wrapper
             all_visual_data = [
                 Mix(report_amp_l), 
                 Mix(report_amp_r), 
@@ -576,13 +587,12 @@ Engine_Avant_lab_V : CroneEngine {
             \bands_bus_base, bands_bus.index, \pos_bus_base, pos_bus.index,
             \gr_bus_idx, gr_bus.index,
             \t1_bus, track_out_buses[0].index, \t2_bus, track_out_buses[1].index,
-            \t3_bus, track_out_buses[2].index, \t4_bus, track_out_buses[3].index,
-            \bass_focus_mode, 0
+            \t3_bus, track_out_buses[2].index, \t4_bus, track_out_buses[3].index
         ], context.xg);
 
         context.server.sync;
         
-        // Commands
+        // Commands (Standard v2055 list)
         this.addCommand("buffer_read", "is", { |msg| 
             var remote = NetAddr("127.0.0.1", 10111);
             var bufnum = buffers[msg[1]-1]; 
