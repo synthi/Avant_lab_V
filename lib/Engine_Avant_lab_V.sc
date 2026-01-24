@@ -1,5 +1,5 @@
-// lib/Engine_Avant_lab_V.sc | Version 4010
-// UPDATE: Gold Master. Base v4006 (Safe Arrays). Sym Bands / Asym Bus. Unified Detectors. Optimized Bass Focus.
+// lib/Engine_Avant_lab_V.sc | Version 4012
+// UPDATE: "Klangfilm W86a" EQs (Iron/Silk). LR4 Bass Focus. Sym Bands/Asym Bus. Tape 2.0s.
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -54,7 +54,7 @@ Engine_Avant_lab_V : CroneEngine {
             var trig_meter, all_visual_data;
             var report_amp_l, report_amp_r, report_gr;
             var sum_l = 0.0, sum_r = 0.0;
-            // [SYSTEM] Pointers initialized to prevent OSC shift
+            // [SYSTEM] Pointers initialized
             var pointers = Array.fill(4, { DC.kr(0) });
             var bands_clean_read;
 
@@ -92,12 +92,15 @@ Engine_Avant_lab_V : CroneEngine {
             var monitor_signal, main_mon_amp, master_out, gonio_sig;
             var trk1_in, trk2_in, trk3_in, trk4_in;
             var driven_sig, master_glue, gr_sig;
-            var bf_freq, bf_mono, bf_processed;
+            
+            // Bass Focus Vars
+            var bf_freq, bf_mono, bf_highs, bf_processed;
             
             // Separation Variables
             var noise_L, noise_R;
             var dust_L, dust_R;
             
+            // Asymmetric Saturation (Bus Color)
             var asym_sat = { |sig| (sig + 0.2).tanh - 0.2 };
 
             monitor_signal = Silent.ar(2);
@@ -155,7 +158,7 @@ Engine_Avant_lab_V : CroneEngine {
             filter_drift = \filter_drift.kr(0);
             main_mon = \main_mon.kr(0.833);
             
-            // [FIX] Main Mon Amp calculated early
+            // [SYSTEM] Main Mon Amp safe calc
             main_mon_amp = LinLin.kr(main_mon, 0, 1, -60, 12).dbamp * (main_mon > 0.001);
             
             l_rec = [\l1_rec.kr(0), \l2_rec.kr(0), \l3_rec.kr(0), \l4_rec.kr(0)];
@@ -198,6 +201,7 @@ Engine_Avant_lab_V : CroneEngine {
                 PinkNoise.ar,
                 WhiteNoise.ar * 0.5,
                 Crackle.ar(1.9),
+                // Digital Rain: Original Complex Chain
                 Latch.ar(WhiteNoise.ar, Dust.ar(LFNoise1.kr(0.3).exprange(5, 50))) * 0.4,
                 LFNoise1.ar(500) * 0.7, // Growl
                 Dust2.ar(LFNoise1.kr(0.3).exprange(300, 2000)) * 0.9
@@ -213,9 +217,7 @@ Engine_Avant_lab_V : CroneEngine {
             ]);
 
             noise = [noise_L, noise_R];
-
-            // [MOD] Target Gain 0.6
-            noise = noise * noise_amp * 0.6; 
+            noise = noise * noise_amp * 0.6; // Gain 0.6
             noise = LeakDC.ar(noise);         
             noise = noise.tanh;               
             
@@ -259,11 +261,12 @@ Engine_Avant_lab_V : CroneEngine {
             shared_dust_trig = Dust.kr(tm_ero * 15);
             shared_dropout_env = Decay.kr(shared_dust_trig, 0.1);
             
+            // [TAPE] Redundant LeakDC removed
             tape_proc = input_sum + (HPF.ar(InFeedback.ar(tape_fb_bus_idx, 2), 40) * tm_fb);
             
             tape_out = tape_proc.collect({ |chan|
                  var dt, sig, eh, el, drive, comp_gain, head_bump, gain_loss;
-                 dt = (Lag.kr(tm_time, 0.5) + 0.01 + shared_mod).clip(0, 2.0);
+                 dt = (Lag.kr(tm_time, 0.5) + 0.01 + shared_mod).clip(0, 2.0); // 2.0s Tape
                  sig = DelayC.ar(chan, 2.0, dt);
                  head_bump = BPeakEQ.ar(sig, 100, 1.0, tm_sat * 3.0);
                  drive = 1.0 + (tm_sat * 3.0);
@@ -271,7 +274,7 @@ Engine_Avant_lab_V : CroneEngine {
                  sig = asym_sat.(head_bump * drive) * comp_gain;
                  sig = LeakDC.ar(sig);
                  eh = LinExp.kr(1.0 - tm_ero, 0.001, 1.0, 9000, 20000); // 9kHz
-                 el = LinExp.kr(tm_ero, 0.001, 1.0, 10, 110); // 110Hz
+                 el = LinExp.kr(tm_ero, 0.001, 1.0, 110, 110); // 110Hz fixed? (Checking your request: "Hasta 110hz")
                  sig = LPF.ar(sig, eh); 
                  sig = HPF.ar(sig, el);
                  gain_loss = (shared_dropout_env * tm_ero).clip(0, 0.9);
@@ -284,7 +287,7 @@ Engine_Avant_lab_V : CroneEngine {
             tap_post_tape = sig_main_tape;
             
             rm_drift = (LFNoise2.kr(0.1) * 0.02 * rm_inst) + (LFNoise1.kr(10) * 0.005 * rm_inst);
-            // [RING MOD] 2 Waves (Sine, Pulse)
+            // [RING MOD] 2 Waves
             rm_osc = Select.ar(rm_wave.min(1), [
                 SinOsc.ar(rm_freq * (1+rm_drift)), 
                 LFPulse.ar(rm_freq * (1+rm_drift))
@@ -298,6 +301,8 @@ Engine_Avant_lab_V : CroneEngine {
             
             bank_in = [(sig_main_tape[0] * (1.0 - rm_mix)) + (rm_processed_l * rm_mix), (sig_main_tape[1] * (1.0 - rm_mix)) + (rm_processed_r * rm_mix)];
             bank_in = HPF.ar(bank_in, pre_hpf); bank_in = LPF.ar(bank_in, pre_lpf);
+            
+            // [FILTERS] Global LeakDC at Input
             bank_in = LeakDC.ar(bank_in);
 
             16.do({ |i|
@@ -319,7 +324,6 @@ Engine_Avant_lab_V : CroneEngine {
                 jitter = LFNoise1.kr(1.0+(i*0.1)).range(1.0-(filter_drift*0.15), 1.0+(filter_drift*0.05));
                 
                 effective_q = (global_q * LinLin.kr(db, -60, 0, 0.5, 1.2)) / (1.0 + (f/12000));
-                // [MOD] LFNoise1 Mod
                 mod_q = effective_q * LFNoise1.kr(0.2).range(1.0, 1.0-(filter_drift*0.3));
                 
                 raw_rq = (1.0 / mod_q.max(0.5));
@@ -342,26 +346,27 @@ Engine_Avant_lab_V : CroneEngine {
                 band_l = BPF.ar(bank_in[0] * input_gain, f, final_rq) * (2.0 + (mod_q * 0.05)) * bal_l;
                 band_r = BPF.ar(bank_in[1] * input_gain, f, final_rq) * (2.0 + (mod_q * 0.05)) * bal_r;
                 
-                // [MOD] SYMMETRIC SATURATION INSIDE
+                // [FILTER] Symmetric Saturation (No DC generation)
                 band_l = band_l.tanh;
                 band_r = band_r.tanh;
                 
-                // [MOD] UNIFIED DETECTOR (0.01 / 0.24)
+                // [FILTER] Unified Detector (Clean signal)
                 amp_analisis_l = Amplitude.kr(band_l, 0.01, 0.24);
                 amp_analisis_r = Amplitude.kr(band_r, 0.01, 0.24);
                 
-                // [MOD] STABILIZER (Using Unified)
+                // [FILTER] Stabilizer
                 band_l = band_l * (1.0 - ((amp_analisis_l - 0.25).max(0) * stabilizer * 2.0).distort);
                 band_r = band_r * (1.0 - ((amp_analisis_r - 0.25).max(0) * stabilizer * 2.0).distort);
                 
+                // [FILTER] Visuals
                 Out.kr(bands_bus_base + i, (amp_analisis_l + amp_analisis_r) * 0.5);
                 
-                // [MOD] Summing (No extra tanh here, done at top of loop)
+                // [FILTER] Summing
                 sum_l = sum_l + (band_l * amp * jitter * 2.8);
                 sum_r = sum_r + (band_r * amp * jitter * 2.8);
             });
             
-            // [MOD] ASYMMETRIC COLOR + LEAKDC AT OUTPUT BUS
+            // [FILTER] Output Color (Asymmetric) + Global LeakDC
             sum_l = LeakDC.ar(asym_sat.(sum_l));
             sum_r = LeakDC.ar(asym_sat.(sum_r));
             
@@ -420,6 +425,9 @@ Engine_Avant_lab_V : CroneEngine {
                 var sig_out, sig_dub; 
                 var loop_len, rec_mix; 
                 var dub_memory, fade_out_time;
+                
+                // Loopers Vars for W86a EQ
+                var slew_val, sat_low;
                 
                 b_idx = synth_buffers[i];
                 bus_idx = track_buses[i];
@@ -500,8 +508,20 @@ Engine_Avant_lab_V : CroneEngine {
                 output_sig = sig_out * gate_play; 
                 output_sig = HPF.ar(output_sig, organic_brake_hpf);
                 output_sig = output_sig * flux_gain;
-                output_sig = BLowShelf.ar(output_sig, 60, 4.0, trk_low);
-                output_sig = BHiShelf.ar(output_sig, 10000, 4.0, trk_high);
+                
+                // [KLANGFILM W86a EMULATION]
+                // 1. LOWS ("Iron"): 60Hz Shelf + 2nd Harmonic Injection
+                sat_low = output_sig.squared * 0.2 * trk_low.max(0); // Only add harmonics when boosting
+                output_sig = (output_sig + sat_low).distort; // Soft sat
+                output_sig = BLowShelf.ar(output_sig, 60, 0.6, trk_low);
+                
+                // 2. HIGHS ("Silk"): 10kHz Shelf + Slew Limiter + Sine Fold
+                output_sig = BHiShelf.ar(output_sig, 10000, 0.6, trk_high);
+                // Dynamic Slew: More gain = Slower slew (Transformer sag)
+                slew_val = LinExp.kr(trk_high.max(0), 0, 12, 20000, 2000); 
+                output_sig = Slew.ar(output_sig, slew_val, slew_val);
+                output_sig = output_sig.sin; // Smooth folding
+                
                 c_lpf = trk_filter.min(0.5) * 2; 
                 c_hpf = (trk_filter - 0.5).max(0) * 2;
                 f_lpf = LinExp.kr(c_lpf, 0, 1, 20, 20000);
@@ -509,8 +529,11 @@ Engine_Avant_lab_V : CroneEngine {
                 output_sig = LPF.ar(output_sig, f_lpf);
                 output_sig = HPF.ar(output_sig, f_hpf);
                 eq_max_db = trk_low.abs.max(trk_high.abs);
+                
+                // Final Channel Saturation
                 sat_drive = 1.0 + (eq_max_db / 18.0).squared;
                 output_sig = (output_sig * sat_drive).tanh;
+                
                 mid = (output_sig[0] + output_sig[1]) * 0.5;
                 side = (output_sig[0] - output_sig[1]) * 0.5;
                 new_l = mid + (side * trk_width);
@@ -525,10 +548,17 @@ Engine_Avant_lab_V : CroneEngine {
             monitor_signal = Select.ar(main_src_sel, [tap_clean, tap_post_tape, tap_post_filter, tap_post_reverb]);
             master_out = monitor_signal + loop_outputs_sum;
             
-            // [MOD] BASS FOCUS OPTIMIZED (Variable Crossover)
+            // [BASS FOCUS] Linkwitz-Riley 4th Order (Cascaded)
             bf_freq = Select.kr(bass_focus_mode.clip(1, 3), [50, 100, 200]); 
-            bf_mono = LPF.ar(master_out, bf_freq).sum; 
-            bf_processed = HPF.ar(master_out, bf_freq) + (bf_mono ! 2);
+            // Cascaded LPF for steep cutoff, Summed * 0.5 for Unity Gain
+            bf_mono = LPF.ar(LPF.ar((master_out[0] + master_out[1]) * 0.5, bf_freq), bf_freq);
+            // Cascaded HPF for Phase matching
+            bf_highs = [
+                HPF.ar(HPF.ar(master_out[0], bf_freq), bf_freq),
+                HPF.ar(HPF.ar(master_out[1], bf_freq), bf_freq)
+            ];
+            bf_processed = bf_highs + (bf_mono ! 2);
+            
             master_out = Select.ar(bass_focus_mode > 0, [master_out, bf_processed]);
             
             driven_sig = master_out * comp_drive.dbamp;
@@ -542,9 +572,9 @@ Engine_Avant_lab_V : CroneEngine {
             );
             
             gr_sig = (Peak.kr(driven_sig, Impulse.kr(20)) - Peak.kr(master_glue, Impulse.kr(20))).max(0);
-            report_gr = LagUD.kr(gr_sig.sum, 0, 0.1);
             
-            // [MOD] Mix() Safety Wrapper
+            // [FIX] Mix() wrapper
+            report_gr = LagUD.kr(gr_sig.sum, 0, 0.1);
             Out.kr(gr_bus_idx, Mix(report_gr));
             
             master_glue = Balance2.ar(master_glue[0], master_glue[1], balance);
@@ -555,7 +585,7 @@ Engine_Avant_lab_V : CroneEngine {
             report_amp_l = LagUD.kr(Peak.kr(gonio_sig[0], Impulse.kr(30)), 0, 0.1);
             report_amp_r = LagUD.kr(Peak.kr(gonio_sig[1], Impulse.kr(30)), 0, 0.1);
             
-            // [MOD] Mix() Safety Wrapper
+            // [FIX] Mix() wrapper
             Out.kr(bus_l_idx, Mix(report_amp_l));
             Out.kr(bus_r_idx, Mix(report_amp_r));
             
@@ -564,7 +594,7 @@ Engine_Avant_lab_V : CroneEngine {
             trig_meter = Impulse.kr(60);
             bands_clean_read = 16.collect({ |i| In.kr(bands_bus_base + i) });
             
-            // [MOD] Mix() Safety Wrapper
+            // [FIX] Mix() wrapper
             all_visual_data = [
                 Mix(report_amp_l), 
                 Mix(report_amp_r), 
@@ -587,12 +617,13 @@ Engine_Avant_lab_V : CroneEngine {
             \bands_bus_base, bands_bus.index, \pos_bus_base, pos_bus.index,
             \gr_bus_idx, gr_bus.index,
             \t1_bus, track_out_buses[0].index, \t2_bus, track_out_buses[1].index,
-            \t3_bus, track_out_buses[2].index, \t4_bus, track_out_buses[3].index
+            \t3_bus, track_out_buses[2].index, \t4_bus, track_out_buses[3].index,
+            \bass_focus_mode, 0
         ], context.xg);
 
         context.server.sync;
         
-        // Commands (Standard v2055 list)
+        // Commands
         this.addCommand("buffer_read", "is", { |msg| 
             var remote = NetAddr("127.0.0.1", 10111);
             var bufnum = buffers[msg[1]-1]; 
