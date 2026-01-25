@@ -1,5 +1,6 @@
 -- Avant_lab_V.lua | Version 2056
 -- UPDATE: DEBUG EDITION (Prints OSC data to Console)
+-- MODIFIED v1.0: Added Length Parameter for Fixed Loopers
 
 engine.name = 'Avant_lab_V'
 
@@ -428,10 +429,14 @@ function init()
   params:add{type = "control", id = "preset_morph_tape", name = "Grid Morph (Tape)", controlspec = controlspec.new(0.01, 60.0, 'exp', 0.01, 2.0, "s"), formatter=fmt_sec, action=function(x) update_str("preset_morph_tape") end}
 
   for i=1, 4 do
-    params:add_group("TAPE TRACK " .. i, 15)
+    params:add_group("TAPE TRACK " .. i, 16) -- [MOD v1.0] Increased group size
     params:add{type = "control", id = "l"..i.."_speed", name = "Speed", controlspec = controlspec.new(-2.0, 2.0, 'lin', 0.01, 1.0), formatter=function(p) return string.format("x%.2f", p:get()) end, action = function(x) state.tracks[i].speed = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_vol", name = "Volume", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.9), formatter=fmt_db, action = function(x) state.tracks[i].vol = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_dub", name = "Overdub", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 1.0), formatter=fmt_percent, action = function(x) state.tracks[i].overdub = x; Loopers.refresh(i, state) end}
+    
+    -- [MOD v1.0] New Length Parameter
+    params:add{type = "control", id = "l"..i.."_length", name = "Length", controlspec = controlspec.new(0.1, 120.0, 'exp', 0.01, 4.0, "s"), action = function(x) engine.set_length(i, x) end}
+
     params:add{type = "control", id = "l"..i.."_deg", name = "Degrade", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].wow_macro = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_start", name = "Start Point", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].loop_start = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_end", name = "End Point", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 1.0), formatter=fmt_percent, action = function(x) state.tracks[i].loop_end = x; Loopers.refresh(i, state) end}
