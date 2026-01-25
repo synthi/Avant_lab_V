@@ -1,6 +1,6 @@
 -- Avant_lab_V lib/graphics.lua | Version 2052
 -- UPDATE: Page 3 Labels (Noise Type String) + P6 Dynamic Title
--- MODIFIED v1.0: Page 7 displays Fixed Length parameter
+-- MODIFIED v1.1: Page 7 Labels Fixed (Speed Top, Length Bottom)
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -227,10 +227,15 @@ function Graphics.draw(state)
      local t = state.tracks[sel]
      screen.level(3); screen.move(55, 8); screen.text("DEGRADE"); screen.level(6); screen.move(55, 15); screen.text(string.format("%.2f", t.wow_macro or 0))
      if not shift then
-       local vol_db = util.linlin(0, 1, -60, 12, t.vol or 0)
-       draw_left_e1("VOL", string.format("%.1fdB", vol_db))
+       -- [MOD v1.1] Top Left: SPEED (was Vol)
        local speed = t.speed or 1; local dir_sym = speed < 0 and "<<" or ">>"
-       screen.level(3); screen.move(55, 53); screen.text("SPEED"); screen.level(15); screen.move(55, 60); screen.text(string.format("%s %.2f", dir_sym, math.abs(speed)))
+       draw_left_e1("SPEED", string.format("%s %.2f", dir_sym, math.abs(speed)))
+       
+       -- [MOD v1.1] Bottom Left: LENGTH (was Speed)
+       screen.level(3); screen.move(55, 53); screen.text("LENGTH"); 
+       screen.level(15); screen.move(55, 60); 
+       screen.text(string.format("%.2fs", params:get("l"..sel.."_length")))
+       
        screen.level(3); screen.move(95, 53); screen.text("DUB"); screen.level(15); screen.move(95, 60); screen.text(string.format("%.0f%%", (t.overdub or 0.5)*100))
      else
        local rec_db = t.rec_level or 0
