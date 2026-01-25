@@ -1,6 +1,6 @@
 -- Avant_lab_V lib/grid.lua | Version 2022
 -- UPDATE: FATAL REGRESSION FIXED. Sequencers & Presets RESTORED. Code Cleaned.
--- MODIFIED v1.0: Fixed Length Logic (Seek, Window, Toggle/Stop/Clear)
+-- MODIFIED v1.6: Fixed Pointer Visibility & Transport Logic (Direct Overdub)
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -32,7 +32,6 @@ function Grid.init(state, device)
   state.view_toggle = false 
   state.pending_transport = {nil, nil, nil, nil} 
   state.transport_press_time = {0, 0, 0, 0}
-  -- [MOD v1.0] Added for double tap detection
   state.transport_last_tap = {0, 0, 0, 0}
   
   state.rnd_btn_val = 2
@@ -68,7 +67,9 @@ local function draw_tape_view(state)
     local s = math.floor((track.loop_start or 0) * 15) + 1
     local e = math.floor((track.loop_end or 1) * 15) + 1
 
-    local has_audio = (track.state ~= 1 and track.state ~= 5 and (track.rec_len or 0) > 0.1)
+    -- [MOD v1.6] Pointer Visibility Fix
+    -- If track is not empty (State 1), assume it has audio/potential
+    local has_audio = (track.state ~= 1)
     local is_paused = (track.state == 5)
     
     local head_pos = (track.play_pos or 0) * 15 + 1
@@ -501,7 +502,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         return
      end
      
-     -- [MOD v1.0] TRANSPORT (13-16) - Fixed Length Logic
+     -- [MOD v1.6] TRANSPORT (13-16) - Fixed Length Logic
      if x >= 13 and x <= 16 then 
         local trk = x - 12
         if z == 1 then
@@ -531,10 +532,10 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                  local next_st = 3 -- Default to Play
                  
                  if st == 5 or st == 0 or st == 1 then 
-                    -- If Stopped/Empty -> Play (and Rec if needed, but Play is safer start)
-                    -- Actually, if empty, we might want to start recording?
-                    -- Fixed length means we can just start playing/overdubbing immediately.
-                    next_st = 3 -- Play
+                    -- [MOD v1.6] Empty/Stop -> DIRECT OVERDUB (State 4)
+                    -- Ensure buffer is clean if it was empty
+                    if st == 1 and engine.clear then engine.clear(trk) end
+                    next_st = 4 -- Overdub (Rec+Play)
                  elseif st == 3 then
                     -- If Playing -> Overdub
                     next_st = 4 -- Overdub
@@ -542,7 +543,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                     -- If Overdubbing -> Play
                     next_st = 3 -- Play
                  elseif st == 2 then
-                    -- If Recording (Initial) -> Play
+                    -- If Recording (Legacy) -> Play
                     next_st = 3
                  end
                  
