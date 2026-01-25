@@ -1,5 +1,6 @@
 // lib/Engine_Avant_lab_V.sc | Version 4012
 // UPDATE: "Klangfilm W86a" EQs (Iron/Silk). LR4 Bass Focus. Sym Bands/Asym Bus. Tape 2.0s.
+// MODIFIED v1.0: Fixed Length (120s), Tape Style Logic.
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -9,11 +10,14 @@ Engine_Avant_lab_V : CroneEngine {
     var <buf1, <buf2, <buf3, <buf4;
     var <dummy_buf;
     var <osc_bridge; 
+    // [MOD v1.0] Increased max length
+    arg max_length = 120.0;
 
     alloc {
         var buffers;
 
         // 1. RAM ALLOCATION
+        // [MOD v1.0] Buffers increased to 120.0s
         buf1 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
         buf2 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
         buf3 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
@@ -48,7 +52,11 @@ Engine_Avant_lab_V : CroneEngine {
              t1_bus=0, t2_bus=0, t3_bus=0, t4_bus=0,
              gonio_source=1, main_src_sel=3,
              comp_thresh=0.5, comp_ratio=2.0, comp_drive=0.0, comp_gain=0.0, 
-             bass_focus_mode=0, limiter_ceil=0.0, balance=0.0| 
+             bass_focus_mode=0, limiter_ceil=0.0, balance=0.0,
+             // [MOD v1.0] New arguments for Fixed Length
+             l1_length=120.0, l2_length=120.0, l3_length=120.0, l4_length=120.0,
+             l1_seek_pos=0, l2_seek_pos=0, l3_seek_pos=0, l4_seek_pos=0,
+             l1_seek_trig=0, l2_seek_trig=0, l3_seek_trig=0, l4_seek_trig=0| 
 
             // Variables
             var trig_meter, all_visual_data;
@@ -75,7 +83,7 @@ Engine_Avant_lab_V : CroneEngine {
             var l_src, l_dub, l_aux, l_deg, l_xfade, l_brake;
             var l_rec_lvl; 
             var l_low, l_high, l_filter, l_pan, l_width;
-            var l_seek_t, l_seek_p;
+            var l_length, l_seek_p, l_seek_t; // [MOD v1.0] Local vars
             
             var synth_buffers, track_buses, init_freqs;
             var noise, input, source, local, input_sum, tap_clean;
@@ -179,8 +187,10 @@ Engine_Avant_lab_V : CroneEngine {
             l_filter = [\l1_filter.kr(0.5), \l2_filter.kr(0.5), \l3_filter.kr(0.5), \l4_filter.kr(0.5)];
             l_pan = [\l1_pan.kr(0), \l2_pan.kr(0), \l3_pan.kr(0), \l4_pan.kr(0)];
             l_width = [\l1_width.kr(1), \l2_width.kr(1), \l3_width.kr(1), \l4_width.kr(1)];
-            l_seek_t = [\l1_seek_t.tr(0), \l2_seek_t.tr(0), \l3_seek_t.tr(0), \l4_seek_t.tr(0)];
-            l_seek_p = [\l1_seek_p.kr(0), \l2_seek_p.kr(0), \l3_seek_p.kr(0), \l4_seek_p.kr(0)];
+            // [MOD v1.0] Mapping new args
+            l_length = [l1_length, l2_length, l3_length, l4_length];
+            l_seek_p = [l1_seek_pos, l2_seek_pos, l3_seek_pos, l4_seek_pos];
+            l_seek_t = [l1_seek_trig, l2_seek_trig, l3_seek_trig, l4_seek_trig];
             
             synth_buffers = [buf1, buf2, buf3, buf4];
             track_buses = [t1_bus, t2_bus, t3_bus, t4_bus];
@@ -428,13 +438,16 @@ Engine_Avant_lab_V : CroneEngine {
                 
                 // Loopers Vars for W86a EQ
                 var slew_val, sat_low;
+                var loop_len_samps; // [MOD v1.0]
                 
                 b_idx = synth_buffers[i];
                 bus_idx = track_buses[i];
                 
                 dub_memory = LagUD.kr(l_dub[i], 0, 0.5);
                 fade_out_time = Select.kr(dub_memory > 0.01, [0.025, 0.3]);
-                gate_rec = LagUD.kr(l_rec[i], 0.005, fade_out_time); 
+                
+                // [MOD v1.0] Tape Style Gate (Lag)
+                gate_rec = Lag.kr(l_rec[i], 0.05); 
                 
                 gate_play = Lag.kr(l_play[i], 0.01); 
                 trk_vol = l_vol[i];
@@ -461,24 +474,17 @@ Engine_Avant_lab_V : CroneEngine {
                 organic_brake_hpf = Lag.kr(organic_brake_hpf, 0.1);
                 flux_gain = (rate_slew.abs * 5.0).clip(0, 1).pow(3);
                 
-                start_pos = trk_start * BufFrames.kr(b_idx);
-                end_pos = trk_end * BufFrames.kr(b_idx);
+                // [MOD v1.0] Fixed Length Logic
+                loop_len_samps = l_length[i] * SampleRate.ir;
                 
-                loop_len = (end_pos - start_pos).abs;
-                fade_len_user = (trk_xfade * SampleRate.ir).min(loop_len * 0.5).max(100);
-                fade_len_micro = (0.01 * SampleRate.ir).min(loop_len * 0.5).max(4);
-
-                ptr = Phasor.ar(seek_t, rate_slew * BufRateScale.kr(b_idx), start_pos, end_pos, seek_p * BufFrames.kr(b_idx));
-                pointers[i] = A2K.kr(ptr / BufFrames.kr(b_idx));
+                // [MOD v1.0] Phasor cycles 0 to length, resets on seek
+                ptr = Phasor.ar(seek_t, rate_slew * BufRateScale.kr(b_idx), 0, loop_len_samps, seek_p * BufFrames.kr(b_idx));
+                
+                pointers[i] = A2K.kr(ptr / loop_len_samps); // Normalize for display
                 Out.kr(pos_bus_base + i, pointers[i]); 
                 
-                dist_start = (ptr - start_pos).abs; dist_end = (end_pos - ptr).abs;
-                fade_in_user = (dist_start / fade_len_user).clip(0, 1).pow(1.5); 
-                fade_out_user = (dist_end / fade_len_user).clip(0, 1);
-                gain_out_user = (fade_in_user.min(fade_out_user) * 0.5 * pi).sin;
-                fade_in_micro = (dist_start / fade_len_micro).clip(0, 1);
-                fade_out_micro = (dist_end / fade_len_micro).clip(0, 1);
-                gain_micro = fade_in_micro.min(fade_out_micro).pow(0.5);
+                // [MOD v1.0] Removed dynamic fade logic based on start/end points
+                // Replaced with simple crossfade/lag on Gate (env_rec)
                 
                 play_sig = BufRd.ar(2, b_idx, ptr, 1, 2);
                 deg_curve = trk_deg.pow(3.0); 
@@ -497,10 +503,11 @@ Engine_Avant_lab_V : CroneEngine {
                 dynamic_cutoff = (rate_slew.abs * 20000).clip(10, 20000);
                 play_sig = LPF.ar(play_sig, dynamic_cutoff);
                 
-                sig_out = play_sig * gain_out_user; 
-                sig_dub = play_sig * gain_micro;    
+                sig_out = play_sig; 
+                sig_dub = play_sig;    
                 
-                rec_sig = (in * gain_micro * trk_rec_amp) + (sig_dub * trk_dub);
+                rec_sig = (in * trk_rec_amp) + (sig_dub * trk_dub);
+                // [MOD v1.0] Simple mix based on gate
                 rec_mix = (play_sig * (1.0 - gate_rec)) + (rec_sig * gate_rec);
                 
                 BufWr.ar(LeakDC.ar(rec_mix).tanh, target_buf, ptr);
@@ -657,10 +664,15 @@ Engine_Avant_lab_V : CroneEngine {
         this.addCommand("l2_config", "ffffffffffff", { |msg| synth.set(\l2_rec, msg[1], \l2_play, msg[2], \l2_vol, msg[3], \l2_speed, msg[4], \l2_start, msg[5], \l2_end, msg[6], \l2_src, msg[7], \l2_dub, msg[8], \l2_aux, msg[9], \l2_deg, msg[10], \l2_xfade, msg[11], \l2_brake, msg[12]); });
         this.addCommand("l3_config", "ffffffffffff", { |msg| synth.set(\l3_rec, msg[1], \l3_play, msg[2], \l3_vol, msg[3], \l3_speed, msg[4], \l3_start, msg[5], \l3_end, msg[6], \l3_src, msg[7], \l3_dub, msg[8], \l3_aux, msg[9], \l3_deg, msg[10], \l3_xfade, msg[11], \l3_brake, msg[12]); });
         this.addCommand("l4_config", "ffffffffffff", { |msg| synth.set(\l4_rec, msg[1], \l4_play, msg[2], \l4_vol, msg[3], \l4_speed, msg[4], \l4_start, msg[5], \l4_end, msg[6], \l4_src, msg[7], \l4_dub, msg[8], \l4_aux, msg[9], \l4_deg, msg[10], \l4_xfade, msg[11], \l4_brake, msg[12]); });
+        // [MOD v1.0] Seek commands updated
         this.addCommand("l1_seek", "f", { |msg| synth.set(\l1_seek_p, msg[1], \l1_seek_t, 1); });
         this.addCommand("l2_seek", "f", { |msg| synth.set(\l2_seek_p, msg[1], \l2_seek_t, 1); });
         this.addCommand("l3_seek", "f", { |msg| synth.set(\l3_seek_p, msg[1], \l3_seek_t, 1); });
         this.addCommand("l4_seek", "f", { |msg| synth.set(\l4_seek_p, msg[1], \l4_seek_t, 1); });
+        
+        // [MOD v1.0] New Length Command
+        this.addCommand("set_length", "if", { |msg| synth.set(("l" ++ msg[1] ++ "_length").asSymbol, msg[2]); });
+
         this.addCommand("feedback", "f", { |msg| synth.set(\fb_amt, msg[1]); });
         this.addCommand("global_q", "f", { |msg| synth.set(\global_q, msg[1]); });
         this.addCommand("cross_feed", "f", { |msg| synth.set(\xfeed_amt, msg[1]); });
