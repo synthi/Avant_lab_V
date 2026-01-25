@@ -1,6 +1,6 @@
 -- Avant_lab_V lib/loopers.lua | Version 321.2
 -- UPDATE: Auto-Clear Buffer on Rec Start (Fixes Rec->Dub Ghost Audio)
--- MODIFIED v1.3: Fixed Length Integration (13-arg Config), Simplified Transport
+-- MODIFIED v1.4: Fixed Length Integration (13-arg Config), Direct Dub Entry
 
 local Loopers = {}
 local util = require 'util'
@@ -158,16 +158,15 @@ function Loopers.delta_param(param_name, d, state)
 end
 
 function Loopers.transport_rec(state, idx, action_type)
-   -- [MOD v1.3] Simplified Transport for Fixed Length
-   -- Hardware Key Logic (Matches Grid)
+   -- [MOD v1.4] Direct Entry to Overdub (State 4) for immediate monitoring
    if action_type == "press" then
       local t = state.tracks[idx]
       
       if t.state == 5 or t.state == 0 or t.state == 1 then
-         -- Stop/Empty -> Play
+         -- Stop/Empty -> Overdub (Record + Play)
          -- Ensure buffer is clean if it was empty
          if t.state == 1 and engine.clear then engine.clear(idx) end
-         t.state = 3
+         t.state = 4 -- Direct to Overdub
       elseif t.state == 3 then
          -- Play -> Overdub
          t.state = 4
@@ -175,7 +174,7 @@ function Loopers.transport_rec(state, idx, action_type)
          -- Overdub -> Play
          t.state = 3
       elseif t.state == 2 then
-         -- Recording (Legacy state) -> Play
+         -- Recording (Legacy) -> Play
          t.state = 3
       end
       Loopers.refresh(idx, state)
