@@ -1,5 +1,6 @@
 -- Avant_lab_V lib/loopers.lua | Version 321.2
 -- UPDATE: Auto-Clear Buffer on Rec Start (Fixes Rec->Dub Ghost Audio)
+-- MODIFIED v1.3: Fixed Length Integration (13-arg Config), Simplified Transport
 
 local Loopers = {}
 local util = require 'util'
@@ -39,23 +40,19 @@ function Loopers.refresh(t_idx, state)
   elseif t.state == 5 then gate_rec = 0.0; gate_play = 0.0; send_dub = 0.0 
   elseif t.state == 1 then gate_rec = 0.0; gate_play = 0.0; send_dub = 0.0 end 
   
-  local sc_start = 0.0; local sc_end = 1.0
+  -- [MOD v1.3] Windowing is now relative (0..1) passed directly to Engine
+  local sc_start = util.clamp(t.loop_start or 0, 0, 1)
+  local sc_end = util.clamp(t.loop_end or 1, 0, 1)
+  if sc_end <= sc_start then sc_end = sc_start + 0.001 end
   
-  if t.state == 2 then 
-     sc_start = 0.0; sc_end = 1.0
-  else
-    local len = t.rec_len or 0
-    local valid_ratio = 0.0
-    if len > 0.01 then valid_ratio = len / MAX_BUFFER_SEC end
-    sc_start = util.clamp(t.loop_start or 0, 0, 1) * valid_ratio
-    sc_end = util.clamp(t.loop_end or 1, 0, 1) * valid_ratio
-    if sc_end <= sc_start then sc_end = sc_start + 0.001 end
-  end
+  -- [MOD v1.3] Fetch Fixed Length Param
+  local length = params:get("l"..t_idx.."_length")
   
   local args = {
       f(gate_rec), f(gate_play), f(t.vol or 0.5), f(t.speed or 1.0),
       f(sc_start), f(sc_end), f(t.src_sel), f(send_dub),
-      f(t.aux_send), f(t.wow_macro), f(t.xfade or 0.05), f(t.brake_amt or 0)
+      f(t.aux_send), f(t.wow_macro), f(t.xfade or 0.05), f(t.brake_amt or 0),
+      f(length) -- [MOD v1.3] Arg 13: Fixed Length
   }
 
   if t_idx == 1 then engine.l1_config(table.unpack(args))
@@ -102,17 +99,12 @@ function Loopers.set_speed_slew(idx, target_speed, slew_time, state, start_val_o
 end
 
 function Loopers.seek(idx, rel_pos, state)
-   local t = state.tracks[idx]
-   if (t.rec_len or 0) < 0.1 then return end
-   local buffer_ratio = t.rec_len / MAX_BUFFER_SEC
-   local loop_len = (t.loop_end or 1) - (t.loop_start or 0)
-   local target_rel_in_loop = (t.loop_start or 0) + (rel_pos * loop_len)
-   local target_abs = target_rel_in_loop * buffer_ratio
-   
-   if idx == 1 then engine.l1_seek(target_abs)
-   elseif idx == 2 then engine.l2_seek(target_abs)
-   elseif idx == 3 then engine.l3_seek(target_abs)
-   elseif idx == 4 then engine.l4_seek(target_abs)
+   -- [MOD v1.3] Simplified Seek: Pass relative pos (0..1) directly
+   -- Engine handles multiplication by Length
+   if idx == 1 then engine.l1_seek(rel_pos)
+   elseif idx == 2 then engine.l2_seek(rel_pos)
+   elseif idx == 3 then engine.l3_seek(rel_pos)
+   elseif idx == 4 then engine.l4_seek(rel_pos)
    end
 end
 
@@ -166,60 +158,24 @@ function Loopers.delta_param(param_name, d, state)
 end
 
 function Loopers.transport_rec(state, idx, action_type)
+   -- [MOD v1.3] Simplified Transport for Fixed Length
+   -- Hardware Key Logic (Matches Grid)
    if action_type == "press" then
-      state.tracks[idx].press_time_k2 = util.time()
-   elseif action_type == "release" then
-      local dur = util.time() - (state.tracks[idx].press_time_k2 or 0)
-      if dur > 1.0 then Loopers.clear(idx, state); return end
-      
       local t = state.tracks[idx]
-      local now = util.time()
       
-      if t.state == 1 then 
-         -- Empty -> Record
-         
-         -- [CRITICAL FIX] Ensure physical buffer is clean before recording starts
-         if engine.clear then engine.clear(idx) end
-         
-         t.state = 2
-         t.start_abs_time = now
-         state.tape_filenames[idx] = nil 
-         t.is_dirty = true
-         
-      elseif t.state == 2 then
-        -- Record -> Play OR Dub (Based on Param)
-        local raw_time = now - (t.start_abs_time or now)
-        local speed_factor = math.abs(t.speed)
-        if speed_factor < 0.01 then speed_factor = 1.0 end
-        local effective_len = raw_time * speed_factor
-        if effective_len < 0.1 then effective_len = 0.1 end
-        if effective_len > MAX_BUFFER_SEC then effective_len = MAX_BUFFER_SEC end
-        t.rec_len = effective_len
-        
-        -- [FIX] Correct loop points to recorded length
-        t.loop_start = 0.0
-        t.loop_end = effective_len / MAX_BUFFER_SEC
-        
-        -- Check Rec Behavior
-        local behavior = params:get("rec_behavior")
-        if behavior == 2 then
-           t.state = 4 -- Go to Overdub
-           t.is_dirty = true
-        else
-           t.state = 3 -- Go to Play
-        end
-        
-      elseif t.state == 3 then 
+      if t.state == 5 or t.state == 0 or t.state == 1 then
+         -- Stop/Empty -> Play
+         -- Ensure buffer is clean if it was empty
+         if t.state == 1 and engine.clear then engine.clear(idx) end
+         t.state = 3
+      elseif t.state == 3 then
          -- Play -> Overdub
          t.state = 4
-         t.is_dirty = true
-         
-      elseif t.state == 4 then 
+      elseif t.state == 4 then
          -- Overdub -> Play
          t.state = 3
-         
-      elseif t.state == 5 then 
-         -- Stop -> Play
+      elseif t.state == 2 then
+         -- Recording (Legacy state) -> Play
          t.state = 3
       end
       Loopers.refresh(idx, state)
