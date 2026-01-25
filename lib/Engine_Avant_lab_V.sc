@@ -481,7 +481,8 @@ Engine_Avant_lab_V : CroneEngine {
                 // Windowing: Start/End are 0..1 percentages of the fixed length
                 // Clamp end to be slightly larger than start to avoid Phasor freeze
                 start_pos = trk_start * loop_len_samps;
-                end_pos = (trk_end * loop_len_samps).max(start_pos + 1000);
+                // end_pos = (trk_end * loop_len_samps).max(start_pos + 1000);
+                 end_pos = (trk_end * loop_len_samps).max(start_pos);
                 
                 // Phasor constrained by Window (start/end) but resettable via Seek
                 ptr = Phasor.ar(seek_t, rate_slew * BufRateScale.kr(b_idx), start_pos, end_pos, seek_p * loop_len_samps);
