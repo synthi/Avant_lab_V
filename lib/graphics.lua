@@ -1,5 +1,6 @@
 -- Avant_lab_V lib/graphics.lua | Version 2052
 -- UPDATE: Page 3 Labels (Noise Type String) + P6 Dynamic Title
+-- MODIFIED v1.0: Page 7 displays Fixed Length parameter
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -255,7 +256,11 @@ function Graphics.draw(state)
              local pos = trk.play_pos or 0; local px = bar_x + (pos * bar_w)
              screen.level(15); screen.pixel(px, y_off - 4); screen.fill(); screen.pixel(px, y_off - 3); screen.fill()
         elseif trk.state == 1 then screen.level(2); screen.pixel(bar_x + (bar_w/2), y_off - 3); screen.fill() end
-        if (trk.rec_len or 0) > 0 then screen.level(3); local len_txt = string.format("%.1fs", trk.rec_len); screen.move(x_base + 12 + bar_w, y_off); screen.text_right(len_txt) end
+        
+        -- [MOD v1.0] Display Fixed Length Parameter
+        screen.level(3)
+        local len_txt = string.format("%.1fs", params:get("l"..i.."_length"))
+        screen.move(x_base + 12 + bar_w, y_off); screen.text_right(len_txt) 
      end
      screen.update(); return
   end
