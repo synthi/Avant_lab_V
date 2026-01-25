@@ -1,5 +1,6 @@
 -- Avant_lab_V lib/grid.lua | Version 2022
 -- UPDATE: FATAL REGRESSION FIXED. Sequencers & Presets RESTORED. Code Cleaned.
+-- MODIFIED v1.0: Fixed Length Logic (Seek, Window, Toggle/Stop/Clear)
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -31,6 +32,9 @@ function Grid.init(state, device)
   state.view_toggle = false 
   state.pending_transport = {nil, nil, nil, nil} 
   state.transport_press_time = {0, 0, 0, 0}
+  -- [MOD v1.0] Added for double tap detection
+  state.transport_last_tap = {0, 0, 0, 0}
+  
   state.rnd_btn_val = 2
   state.rnd_btn_timer = 0
   state.freeze_clock = nil 
@@ -497,54 +501,62 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         return
      end
      
-     -- TRANSPORT (13-16) RESTORED Explicit Logic
+     -- [MOD v1.0] TRANSPORT (13-16) - Fixed Length Logic
      if x >= 13 and x <= 16 then 
         local trk = x - 12
         if z == 1 then
            state.transport_press_time[trk] = util.time()
            if state.k1_held then
+              -- K1 + Transport = Stop/Pause (Legacy behavior kept for safety)
               state.tracks[trk].state = 5; Loopers.refresh(trk, state)
            end
         elseif z == 0 then
-           local hold_time = util.time() - state.transport_press_time[trk]
+           local now = util.time()
+           local hold_time = now - state.transport_press_time[trk]
            if state.k1_held then return end 
-           if hold_time > 1.5 then
+           
+           if hold_time > 1.0 then
+              -- HOLD: CLEAR
               Loopers.clear(trk, state)
            else
-              local now = util.time()
-              local dt = now - state.transport_timers[trk]
-              if dt < 0.3 then
-                 state.tracks[trk].state = 5; Loopers.refresh(trk, state)
+              -- TAP LOGIC
+              local last_tap = state.transport_last_tap[trk] or 0
+              if (now - last_tap) < 0.3 then
+                 -- DOUBLE TAP: STOP
+                 state.tracks[trk].state = 5 -- 5 = Stopped/Paused
+                 Loopers.refresh(trk, state)
               else
+                 -- SINGLE TAP: TOGGLE REC/PLAY
                  local st = state.tracks[trk].state
-                 local next_st = 3 
-                 if st == 1 then next_st = 2 
-                 elseif st == 2 then 
-                    if params:get("rec_behavior") == 2 then next_st = 4 else next_st = 3 end
-                 elseif st == 3 then next_st = 4 
-                 elseif st == 4 then next_st = 3 
-                 elseif st == 5 then next_st = 3 end
-                 if next_st == 2 or next_st == 4 then state.tracks[trk].is_dirty = true; if next_st == 2 then state.tape_filenames[trk] = nil end end
-                 state.tracks[trk].state = next_st
-                 if next_st == 2 then 
-                    state.tracks[trk].start_abs_time = now
-                 elseif st == 2 and (next_st == 3 or next_st == 4) then
-                    local raw_time = now - (state.tracks[trk].start_abs_time or now)
-                    local speed_factor = math.abs(state.tracks[trk].speed or 1)
-                    if speed_factor < 0.01 then speed_factor = 1.0 end
-                    local len = raw_time * speed_factor
-                    if len < 0.1 then len = 0.1 end; if len > 60.0 then len = 60.0 end
-                    state.tracks[trk].rec_len = len; state.tracks[trk].loop_start = 0; state.tracks[trk].loop_end = 1
+                 local next_st = 3 -- Default to Play
+                 
+                 if st == 5 or st == 0 or st == 1 then 
+                    -- If Stopped/Empty -> Play (and Rec if needed, but Play is safer start)
+                    -- Actually, if empty, we might want to start recording?
+                    -- Fixed length means we can just start playing/overdubbing immediately.
+                    next_st = 3 -- Play
+                 elseif st == 3 then
+                    -- If Playing -> Overdub
+                    next_st = 4 -- Overdub
+                 elseif st == 4 then
+                    -- If Overdubbing -> Play
+                    next_st = 3 -- Play
+                 elseif st == 2 then
+                    -- If Recording (Initial) -> Play
+                    next_st = 3
                  end
+                 
+                 state.tracks[trk].state = next_st
                  Loopers.refresh(trk, state)
               end
-              state.transport_timers[trk] = now
+              state.transport_last_tap[trk] = now
            end
         end
         return
      end
   end
   
+  -- [MOD v1.0] TAPE TOUCH (Rows 1-4) - Fixed Length Seek/Window
   if is_tape_view and y <= 4 then
      local trk = y
      if z == 1 then 
@@ -555,22 +567,18 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
            for k, v in pairs(state.grid_keys_held[trk]) do 
               if v then count = count + 1; if k < min_x then min_x = k end; if k > max_x then max_x = k end end 
            end
+           
            if count == 1 then
+              -- 1 FINGER: SEEK (Absolute)
               if state.grid_keys_held[trk][x] then 
-                 if state.grid_momentary_mode then
-                    state.stutter_memory[trk] = {start = state.tracks[trk].loop_start, end_ = state.tracks[trk].loop_end}
-                    local center = (x-1)/15; local width = 0.05 
-                    state.tracks[trk].loop_start = math.max(0, center - width/2); state.tracks[trk].loop_end = math.min(1, center + width/2)
-                    Loopers.refresh(trk, state)
-                 else
-                    local pos = (x-1)/15
-                    Loopers.seek(trk, pos, state)
-                 end
-              else
                  local pos = (x-1)/15
-                 Loopers.seek(trk, pos, state)
+                 -- Use new Engine Seek command
+                 engine["l"..trk.."_seek"](pos)
+                 -- Also update Lua state for UI
+                 state.tracks[trk].play_pos = pos
               end
            elseif count >= 2 then
+              -- 2 FINGERS: WINDOW (Start/End)
               state.tracks[trk].loop_start = (min_x - 1) / 15
               state.tracks[trk].loop_end = (max_x - 1) / 15
               Loopers.refresh(trk, state)
@@ -578,17 +586,10 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         end)
      elseif z == 0 then 
         state.grid_keys_held[trk][x] = nil 
-        if state.grid_momentary_mode and state.stutter_memory[trk] then
-           local count = 0
-           for k, v in pairs(state.grid_keys_held[trk]) do if v then count = count + 1 end end
-           if count == 0 then
-              state.tracks[trk].loop_start = state.stutter_memory[trk].start; state.tracks[trk].loop_end = state.stutter_memory[trk].end_
-              Loopers.refresh(trk, state); state.stutter_memory[trk] = nil
-           end
-        end
      end
      return
   end
+  
   if is_tape_view and y == 5 then
      if x <= 4 and z == 1 then 
         state.track_sel = x
