@@ -1,6 +1,6 @@
 -- Avant_lab_V.lua | Version 2056
 -- UPDATE: DEBUG EDITION (Prints OSC data to Console)
--- MODIFIED v1.4: Fixed Length Param Action (Calls Refresh instead of nil command)
+-- MODIFIED v1.5: Fixed OSC Visuals (No double normalization), Fixed Length Param
 
 engine.name = 'Avant_lab_V'
 
@@ -215,9 +215,6 @@ function osc.event(path, args, from)
     
   elseif path == "/avant_lab_v/visuals" then
     if args and #args >= 23 then
-        -- [DEBUG] AUDITORÍA OSC (Imprime los datos crudos)
-        -- print(string.format("OSC CHECK: Total=%d | L=%.3f | R=%.3f | B1=%.3f", #args, args[1], args[2], args[8]))
-
         state.amp_l = args[1]
         state.amp_r = args[2]
         state.comp_gr = args[3]
@@ -230,15 +227,10 @@ function osc.event(path, args, from)
         for i=1, 4 do
             local raw_pos = args[3+i] 
             local t = state.tracks[i]
-            local len = t.rec_len or 0
-            local buffer_ratio = 0
-            if len > 0.1 then buffer_ratio = len / MAX_BUFFER_SEC end
             
-            if buffer_ratio > 0.0001 then
-                t.play_pos = util.clamp(raw_pos / buffer_ratio, 0, 1)
-            else
-                t.play_pos = 0
-            end
+            -- [MOD v1.5] Visual Fix: Engine sends normalized phase (0..1).
+            -- Do NOT divide by buffer_ratio anymore.
+            t.play_pos = util.clamp(raw_pos, 0, 1)
         end
         
         local smooth_factor = 0.25
