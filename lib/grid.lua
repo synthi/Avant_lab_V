@@ -1,5 +1,7 @@
--- Avant_lab_V lib/grid.lua | Version 1.1
--- UPDATE v1.1: Dub -> Stop blocked (must go to Play first). 
+-- Avant_lab_V lib/grid.lua | Version 1.0
+-- RELEASE v1.0 (GOLD MASTER):
+-- 1. DYNAMIC LOOPING: Rec -> Dub(SetLen Future+150ms) -> Play logic.
+-- 2. MICRO-LOOPS: Touch&Hold with Random 80-180ms length.
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -23,7 +25,7 @@ function Grid.init(state, device)
   state.grid_keys_held = {} 
   for i=1, 4 do state.grid_keys_held[i] = {} end
   state.ribbon_memory = {}
-  state.seek_memory = {} 
+  state.seek_memory = {} -- For micro-loops
   state.preset_memory = nil
   state.seq_clicks = {0,0,0,0}
   state.stutter_memory = {} 
@@ -41,7 +43,9 @@ function Grid.init(state, device)
   state.grid_track_held = false
 end
 
--- ... (LED BUF UNCHANGED) ...
+-- ... (LED BUF / DRAW FUNCTIONS UNCHANGED FROM v2022) ...
+-- (Providing full file content below for safety)
+
 local function led_buf(x, y, val)
    if x >=1 and x <=16 and y >=1 and y <=8 then
       next_frame[x][y] = math.floor(val)
@@ -302,7 +306,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
   
   if is_physical then record_event(state, x, y, z, is_tape_view) end
 
-  -- ROW 8
+  -- ROW 8 (Pages & Shift)
   if y == 8 then
      if x >= 7 then 
         if z == 1 then 
@@ -342,15 +346,129 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
      return
   end
   
-  -- ROW 7
+  -- ROW 7 (Seq, Presets, FX, Transport)
   if y == 7 then
      if state.grid_shift_active and z == 1 then
         if x <= 4 then local r = rec_slots[x]; r.state = 0; r.data = {}; r.step = 1; r.duration = 0; return end
         if x >= 5 and x <= 8 then local slot = x - 4; presets_status[slot] = 0; presets_data[slot] = {}; if is_tape_view then state.tape_preset_selected = 0 else state.main_preset_selected = 0 end; return end
         if x >= 13 and x <= 16 then Loopers.clear(x - 12, state); return end
      end
+     -- (FX Logic unchanged)
+     if x >= 9 and x <= 12 then 
+        local fx_type = ""; if x == 9 then fx_type = "kill" elseif x == 10 then fx_type = "freeze" elseif x == 11 then fx_type = "warble" elseif x == 12 then fx_type = "brake" end
+        if z == 1 then
+           if fx_type == "kill" then state.fx_memory["kill"] = params:get("pre_lpf"); params:set("pre_lpf", 150)
+           elseif fx_type == "freeze" then 
+              if state.freeze_clock then clock.cancel(state.freeze_clock) end
+              if not state.fx_memory["freeze"] then state.fx_memory["freeze"] = {rev_time=params:get("reverb_time"), fb=params:get("tape_fb")} end
+              params:set("tape_fb", 1.0); state.freeze_btn_level = 15 
+              state.freeze_clock = clock.run(function()
+                 local start_val = params:get("reverb_time"); local target_val = 60.0; local steps = 10 
+                 for i=1, steps do local val = start_val + ((target_val - start_val) * (i/steps)); params:set("reverb_time", val); clock.sleep(0.02) end
+              end)
+           elseif fx_type == "warble" then 
+              state.fx_memory["warble"] = {w=params:get("tape_wow"), f=params:get("tape_flutter")}
+              params:set("tape_wow", 1.0); params:set("tape_flutter", 1.0)
+           elseif fx_type == "brake" then 
+              state.fx_memory["brake"] = true
+              for i=1,4 do state.tracks[i].brake_amt = 1.0 end; Loopers.refresh(1, state); Loopers.refresh(2, state); Loopers.refresh(3, state); Loopers.refresh(4, state) 
+           end
+        elseif z == 0 then
+           if fx_type == "kill" and state.fx_memory["kill"] then params:set("pre_lpf", state.fx_memory["kill"]); state.fx_memory["kill"] = nil
+           elseif fx_type == "freeze" and state.fx_memory["freeze"] then 
+              if state.freeze_clock then clock.cancel(state.freeze_clock) end
+              params:set("tape_fb", state.fx_memory["freeze"].fb)
+              state.freeze_clock = clock.run(function()
+                 local start_val = params:get("reverb_time"); local target_val = state.fx_memory["freeze"].rev_time; local steps = 150 
+                 for i=1, steps do
+                    local val = start_val + ((target_val - start_val) * (i/steps))
+                    params:set("reverb_time", val); state.freeze_btn_level = math.floor(util.linlin(1, steps, 15, 2, i)); clock.sleep(0.02)
+                 end
+                 state.fx_memory["freeze"] = nil; state.freeze_btn_level = DIM_BRIGHT 
+              end)
+           elseif fx_type == "warble" and state.fx_memory["warble"] then params:set("tape_wow", state.fx_memory["warble"].w); params:set("tape_flutter", state.fx_memory["warble"].f); state.fx_memory["warble"] = nil
+           elseif fx_type == "brake" then for i=1,4 do state.tracks[i].brake_amt = 0.0 end; Loopers.refresh(1, state); Loopers.refresh(2, state); Loopers.refresh(3, state); Loopers.refresh(4, state); state.fx_memory["brake"] = nil
+           end
+        end
+        return
+     end
+     if x <= 4 then 
+        local slot = x; local r = rec_slots[slot]
+        if z==1 then r.press_time = util.time()
+        elseif z==0 then
+           local d = util.time() - r.press_time
+           if d > 1.0 then r.state = 0; r.data = {}; r.step = 1; r.duration = 0
+           else
+              state.seq_clicks[slot] = (state.seq_clicks[slot] or 0) + 1
+              if state.seq_clicks[slot] == 1 then
+                 clock.run(function() clock.sleep(0.25)
+                    local clicks = state.seq_clicks[slot]
+                    if clicks == 1 then
+                       if r.state == 0 then r.state = 1; r.data = {}; r.start_time = util.time(); r.step = 1
+                       elseif r.state == 1 then r.state = 2; r.duration = util.time() - r.start_time
+                       elseif r.state == 2 then r.state = 4
+                       elseif r.state == 4 then r.state = 2 
+                       elseif r.state == 3 then r.state = 2 end
+                    elseif clicks == 2 then if r.state ~= 0 then r.state = 3 end end
+                    state.seq_clicks[slot] = 0
+                 end)
+              end
+           end
+        end
+        return
+     end
+     if x >= 5 and x <= 8 then 
+        local slot = x - 4
+        if z == 1 then
+           preset_press_time[slot] = util.time()
+           local is_current = false
+           if is_tape_view then is_current = (state.tape_preset_selected == slot) else is_current = (state.main_preset_selected == slot) end
+           if presets_status[slot] == 0 then
+             if is_tape_view then
+                local saved_tracks = {}
+                for i=1,4 do local t = state.tracks[i]; saved_tracks[i] = {speed=t.speed, vol=t.vol, loop_start=t.loop_start, loop_end=t.loop_end, state=t.state, overdub=t.overdub, file_path=t.file_path, l_low=t.l_low, l_high=t.l_high, l_filter=t.l_filter, l_pan=t.l_pan, l_width=t.l_width} end
+                presets_data[slot] = { tracks = saved_tracks }; state.tape_preset_selected = slot
+             else
+                local saved_gains = {}; for i=1, 16 do saved_gains[i] = state.bands_gain[i] end
+                presets_data[slot] = { gains = saved_gains, q = params:get("global_q"), scale_idx = params:get("scale_idx"), root_note = params:get("root_note"), feedback = params:get("feedback") }
+                state.main_preset_selected = slot
+             end
+             presets_status[slot] = 1
+           elseif is_current then
+              if is_tape_view then
+                local saved_tracks = {}
+                for i=1,4 do local t = state.tracks[i]; saved_tracks[i] = {speed=t.speed, vol=t.vol, loop_start=t.loop_start, loop_end=t.loop_end, state=t.state, overdub=t.overdub, file_path=t.file_path, l_low=t.l_low, l_high=t.l_high, l_filter=t.l_filter, l_pan=t.l_pan, l_width=t.l_width} end
+                presets_data[slot] = { tracks = saved_tracks }
+              else
+                local saved_gains = {}; for i=1, 16 do saved_gains[i] = state.bands_gain[i] end
+                presets_data[slot] = { gains = saved_gains, q = params:get("global_q"), scale_idx = params:get("scale_idx"), root_note = params:get("root_note"), feedback = params:get("feedback") }
+              end
+           else
+              if is_tape_view then
+                 state.morph_tape_src = {}; for i=1,4 do state.morph_tape_src[i] = {speed=state.tracks[i].speed, vol=state.tracks[i].vol, l_low=state.tracks[i].l_low, l_high=state.tracks[i].l_high, l_filter=state.tracks[i].l_filter, l_pan=state.tracks[i].l_pan, l_width=state.tracks[i].l_width} end
+                 state.morph_tape_active = true; state.morph_tape_slot = slot; state.morph_tape_start_time = util.time(); state.tape_preset_selected = slot
+                 local target = presets_data[slot]
+                 if target and target.tracks then
+                    for i=1,4 do if target.tracks[i] and target.tracks[i].state then state.tracks[i].state = target.tracks[i].state; Loopers.refresh(i, state) end end
+                 end
+              else
+                 state.morph_main_src = {}
+                 for i=1,16 do state.morph_main_src[i] = state.bands_gain[i] or params:get("gain_"..i) or -60 end
+                 state.morph_main_src_q = params:get("global_q"); state.morph_main_src_fb = params:get("feedback"); state.morph_main_src_freqs = {}
+                 for i=1, 16 do table.insert(state.morph_main_src_freqs, params:get("freq_"..i)) end
+                 state.morph_main_active = true; state.morph_main_slot = slot; state.morph_main_start_time = util.time(); state.main_preset_selected = slot
+                 local target = presets_data[slot]
+                 if target and target.scale_idx then state.preview_scale_idx = target.scale_idx; if Scales and Scales.list and Scales.list[target.scale_idx] then state.loaded_scale_name = Scales.list[target.scale_idx].name end end
+              end
+           end
+        elseif z == 0 then
+           local d = util.time() - preset_press_time[slot]
+           if presets_status[slot] == 1 and d > 1.0 then presets_status[slot] = 0; presets_data[slot] = {}; if is_tape_view then state.tape_preset_selected = 0 else state.main_preset_selected = 0 end end
+        end
+        return
+     end
      
-     -- [v1.1] TRANSPORT LOGIC
+     -- [v1.0] TRANSPORT: Dynamic Loop Logic
      if x >= 13 and x <= 16 then 
         local trk = x - 12
         if z == 1 then 
@@ -369,30 +487,28 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
            else
               local last_tap = state.transport_last_tap[trk] or 0
               if (now - last_tap) < 0.3 then
-                 -- [v1.1] Safety: Block Dub->Stop. Force Play.
-                 if state.tracks[trk].state == 4 then
-                    state.tracks[trk].state = 3 -- Force to Play first
-                 else
-                    state.tracks[trk].state = 5 -- Stop
-                 end
+                 state.tracks[trk].state = 5 -- Double tap -> STOP
                  Loopers.refresh(trk, state)
               else
                  local st = state.tracks[trk].state
                  local next_st = 3
                  
                  if st == 5 or st == 0 or st == 1 then 
+                    -- 1. EMPTY/STOP -> RECORD (OVERDUB STATE) + CLEAR + SEEK 0
                     if st == 1 and engine.clear then 
                         engine.clear(trk); engine["l"..trk.."_seek"](0) 
                     end
+                    -- Mark this as "First Pass" for dynamic length logic
                     state.tracks[trk].first_pass = true
                     state.tracks[trk].rec_start_time = util.time()
                     next_st = 4 
                  
                  elseif st == 4 and state.tracks[trk].first_pass then
+                    -- 2. FIRST PASS -> SET LENGTH (FUTURE + 150ms) + CONTINUE DUB
                     local dur = util.time() - (state.tracks[trk].rec_start_time or now)
                     params:set("l"..trk.."_length", dur + 0.15)
                     state.tracks[trk].first_pass = false
-                    next_st = 4 
+                    next_st = 4 -- Stay in Overdub
                  
                  elseif st == 3 then next_st = 4 
                  elseif st == 4 then next_st = 3 
@@ -419,17 +535,28 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
            for k, v in pairs(state.grid_keys_held[trk]) do if v then count = count + 1; if k < min_x then min_x = k end; if k > max_x then max_x = k end end end
            
            if count == 1 then
+              -- 1 FINGER: MICRO-LOOP (Touch & Hold)
               if state.grid_keys_held[trk][x] then 
                  local pos = (x-1)/15
                  local t = state.tracks[trk]
+                 -- Store original points
                  state.seek_memory[trk] = {start_p = t.loop_start or 0, end_p = t.loop_end or 1}
+                 
+                 -- Calculate Random Length (80-180ms)
                  local buf_len = params:get("l"..trk.."_length") or 10.0
                  local rand_ms = math.random(80, 180) / 1000.0
                  local frac = rand_ms / buf_len
-                 t.loop_start = pos; t.loop_end = math.min(pos + frac, 1.0)
-                 Loopers.refresh(trk, state); engine["l"..trk.."_seek"](pos)
+                 
+                 -- Set new points
+                 t.loop_start = pos
+                 t.loop_end = math.min(pos + frac, 1.0)
+                 
+                 -- Update & Jump (Uses t_ trigger now)
+                 Loopers.refresh(trk, state)
+                 engine["l"..trk.."_seek"](pos)
               end
            elseif count >= 2 then
+              -- 2 FINGERS: WINDOW (Set New Loop)
               state.tracks[trk].loop_start = (min_x - 1) / 15
               state.tracks[trk].loop_end = (max_x - 1) / 15
               Loopers.refresh(trk, state)
@@ -437,17 +564,21 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         end)
      elseif z == 0 then 
         state.grid_keys_held[trk][x] = nil 
+        -- ON RELEASE 1-FINGER: Restore and Continue (No Seek)
         local count = 0; for k,v in pairs(state.grid_keys_held[trk]) do if v then count=count+1 end end
         if count == 0 and state.seek_memory[trk] then
-            local t = state.tracks[trk]; local mem = state.seek_memory[trk]
-            t.loop_start = mem.start_p; t.loop_end = mem.end_p
-            Loopers.refresh(trk, state); state.seek_memory[trk] = nil
+            local t = state.tracks[trk]
+            local mem = state.seek_memory[trk]
+            t.loop_start = mem.start_p
+            t.loop_end = mem.end_p
+            Loopers.refresh(trk, state)
+            state.seek_memory[trk] = nil
         end
      end
      return
   end
   
-  -- MIXER / RIBBON
+  -- MIXER / RIBBON (Unchanged)
   if is_tape_view and y == 5 then
      if x <= 4 and z == 1 then state.track_sel = x; state.grid_track_held = true; if state.current_page == 9 then state.mixer_sel = x; state.grid_mixer_held = true end
      elseif x <= 4 and z == 0 then state.grid_mixer_held = false; state.grid_track_held = false end
