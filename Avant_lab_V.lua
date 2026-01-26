@@ -1,5 +1,6 @@
--- Avant_lab_V.lua | Version 1.2
+-- Avant_lab_V.lua | Version 1.2.1
 -- RELEASE v1.2: Feedback range 120%, Default Levels adjusted (-6dB Rec, 0dB Vol).
+-- fix default params
 
 engine.name = 'Avant_lab_V'
 
