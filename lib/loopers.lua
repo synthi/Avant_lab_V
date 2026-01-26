@@ -1,6 +1,5 @@
 -- Avant_lab_V lib/loopers.lua | Version 321.2
--- UPDATE: Auto-Clear Buffer on Rec Start (Fixes Rec->Dub Ghost Audio)
--- MODIFIED v1.4: Fixed Length Integration (13-arg Config), Direct Dub Entry
+-- MODIFIED v2.0: Continuous Write Logic, Removed Xfade, Updated Config.
 
 local Loopers = {}
 local util = require 'util'
@@ -32,27 +31,30 @@ function Loopers.refresh(t_idx, state)
   local t = state.tracks[t_idx]
   if not t then return end
   
+  -- [MOD v2.0] Continuous Write Logic
+  -- gate_rec = 1 when we want to record INPUT.
+  -- gate_play = 1 when we want to hear OUTPUT.
   local gate_rec = 0.0; local gate_play = 0.0; local send_dub = 0.0
   
   if t.state == 2 then gate_rec = 1.0; gate_play = 0.0; send_dub = 0.0 
-  elseif t.state == 3 then gate_rec = 0.0; gate_play = 1.0; send_dub = 0.0 
+  -- elseif t.state == 3 then gate_rec = 0.0; gate_play = 1.0; send_dub = 0.0 
+  elseif t.state == 3 then gate_rec = 0.0; gate_play = 1.0; send_dub = t.overdub or 1.0 
   elseif t.state == 4 then gate_rec = 1.0; gate_play = 1.0; send_dub = t.overdub or 1.0 
   elseif t.state == 5 then gate_rec = 0.0; gate_play = 0.0; send_dub = 0.0 
   elseif t.state == 1 then gate_rec = 0.0; gate_play = 0.0; send_dub = 0.0 end 
   
-  -- [MOD v1.3] Windowing is now relative (0..1) passed directly to Engine
   local sc_start = util.clamp(t.loop_start or 0, 0, 1)
   local sc_end = util.clamp(t.loop_end or 1, 0, 1)
   if sc_end <= sc_start then sc_end = sc_start + 0.001 end
   
-  -- [MOD v1.3] Fetch Fixed Length Param
   local length = params:get("l"..t_idx.."_length")
   
+  -- [MOD v2.0] Removed xfade arg
   local args = {
       f(gate_rec), f(gate_play), f(t.vol or 0.5), f(t.speed or 1.0),
       f(sc_start), f(sc_end), f(t.src_sel), f(send_dub),
-      f(t.aux_send), f(t.wow_macro), f(t.xfade or 0.05), f(t.brake_amt or 0),
-      f(length) -- [MOD v1.3] Arg 13: Fixed Length
+      f(t.aux_send), f(t.wow_macro), f(t.brake_amt or 0),
+      f(length)
   }
 
   if t_idx == 1 then engine.l1_config(table.unpack(args))
@@ -61,14 +63,11 @@ function Loopers.refresh(t_idx, state)
   elseif t_idx == 4 then engine.l4_config(table.unpack(args))
   end
   
-  -- Send Mixer Params
   engine.l_low(t_idx, t.l_low or 0)
   engine.l_high(t_idx, t.l_high or 0)
   engine.l_filter(t_idx, t.l_filter or 0.5)
   engine.l_pan(t_idx, t.l_pan or 0)
   engine.l_width(t_idx, t.l_width or 1)
-  
-  -- Send Rec Level
   engine.l_rec_lvl(t_idx, t.rec_level or 0.0)
 end
 
@@ -99,8 +98,6 @@ function Loopers.set_speed_slew(idx, target_speed, slew_time, state, start_val_o
 end
 
 function Loopers.seek(idx, rel_pos, state)
-   -- [MOD v1.3] Simplified Seek: Pass relative pos (0..1) directly
-   -- Engine handles multiplication by Length
    if idx == 1 then engine.l1_seek(rel_pos)
    elseif idx == 2 then engine.l2_seek(rel_pos)
    elseif idx == 3 then engine.l3_seek(rel_pos)
@@ -116,7 +113,6 @@ function Loopers.clear(idx, state)
    t.is_dirty = false
    t.file_path = nil
    
-   -- Physical Buffer Zeroing (Manual Clear)
    if engine.clear then engine.clear(idx) end
    
    Loopers.refresh(idx, state)
@@ -158,23 +154,17 @@ function Loopers.delta_param(param_name, d, state)
 end
 
 function Loopers.transport_rec(state, idx, action_type)
-   -- [MOD v1.4] Direct Entry to Overdub (State 4) for immediate monitoring
    if action_type == "press" then
       local t = state.tracks[idx]
       
       if t.state == 5 or t.state == 0 or t.state == 1 then
-         -- Stop/Empty -> Overdub (Record + Play)
-         -- Ensure buffer is clean if it was empty
          if t.state == 1 and engine.clear then engine.clear(idx) end
          t.state = 4 -- Direct to Overdub
       elseif t.state == 3 then
-         -- Play -> Overdub
-         t.state = 4
+         t.state = 4 -- Play -> Overdub
       elseif t.state == 4 then
-         -- Overdub -> Play
-         t.state = 3
+         t.state = 3 -- Overdub -> Play
       elseif t.state == 2 then
-         -- Recording (Legacy) -> Play
          t.state = 3
       end
       Loopers.refresh(idx, state)
