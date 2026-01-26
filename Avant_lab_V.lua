@@ -1,6 +1,6 @@
 -- Avant_lab_V.lua | Version 2056
 -- UPDATE: DEBUG EDITION (Prints OSC data to Console)
--- MODIFIED v1.5: Fixed OSC Visuals (No double normalization), Fixed Length Param
+-- MODIFIED v2.0: Defaults Updated, Snapshot Fix, Obsolete Params Removed.
 
 engine.name = 'Avant_lab_V'
 
@@ -160,7 +160,11 @@ function update_morph_tape()
      if morph_time < 0.05 or progress >= 1.0 then
         for i=1, 4 do
            local t_dest = target.tracks[i]
-           if t_dest then
+           -- [MOD v2.0] Snapshot Fix: Don't overwrite if target is empty but current track has audio
+           local skip = false
+           if t_dest and t_dest.state == 1 and state.tracks[i].rec_len and state.tracks[i].rec_len > 0.1 then skip = true end
+           
+           if t_dest and not skip then
               state.tracks[i].speed = t_dest.speed; state.tracks[i].vol = t_dest.vol
               state.tracks[i].loop_start = t_dest.loop_start; state.tracks[i].loop_end = t_dest.loop_end
               state.tracks[i].overdub = t_dest.overdub
@@ -177,7 +181,11 @@ function update_morph_tape()
      else
         for i=1, 4 do
            local t_dest = target.tracks[i]; local t_src = state.morph_tape_src[i]
-           if t_dest and t_src then
+           -- [MOD v2.0] Snapshot Fix applied to morphing too
+           local skip = false
+           if t_dest and t_dest.state == 1 and state.tracks[i].rec_len and state.tracks[i].rec_len > 0.1 then skip = true end
+           
+           if t_dest and t_src and not skip then
               local s_speed = t_src.speed or 1.0; local d_speed = t_dest.speed or 1.0
               state.tracks[i].speed = s_speed + ((d_speed - s_speed) * progress)
               local s_vol = t_src.vol or 0.9; local d_vol = t_dest.vol or 0.9
@@ -227,9 +235,6 @@ function osc.event(path, args, from)
         for i=1, 4 do
             local raw_pos = args[3+i] 
             local t = state.tracks[i]
-            
-            -- [MOD v1.5] Visual Fix: Engine sends normalized phase (0..1).
-            -- Do NOT divide by buffer_ratio anymore.
             t.play_pos = util.clamp(raw_pos, 0, 1)
         end
         
@@ -321,7 +326,8 @@ function init()
   params:add_group("GLOBAL", 11) 
   params:add{type = "control", id = "feedback", name = "Feedback", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) set_p("feedback", x) end}
   params:add{type = "control", id = "global_q", name = "Global Q", controlspec = controlspec.new(0.5, 80.0, 'exp', 0, 1.0), formatter=function(p) return string.format("%.1f", p:get()) end, action = function(x) set_p("global_q", x) end}
-  params:add{type = "control", id = "system_dirt", name = "System Dirt", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) set_p("system_dirt", x) end}
+  -- [MOD v2.0] Default Dirt 5%
+  params:add{type = "control", id = "system_dirt", name = "System Dirt", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.05), formatter=fmt_percent, action = function(x) set_p("system_dirt", x) end}
   
   params:add{
     type = "control", id = "main_mon", name = "Main Monitor", 
@@ -330,6 +336,7 @@ function init()
     action = function(x) set_p("main_mon", x) end
   }
   
+  -- [MOD v2.0] Default Source Post Reverb (4)
   params:add{type = "option", id = "main_source", name = "Monitor Source",
     options = {"Clean In", "Post Tape", "Post Filter", "Post Reverb"}, default = 4,
     action = function(x) engine.main_source(x-1); update_str("main_source") end
@@ -338,7 +345,7 @@ function init()
   params:add{type = "control", id = "fader_slew", name = "Fader Slew", controlspec = controlspec.new(0.01, 10.0, 'exp', 0.01, 0.05, "s"), formatter=fmt_sec, action = function(x) set_p("fader_slew", x) end}
   params:add{type = "control", id = "scope_zoom", name = "Scope Zoom", controlspec = controlspec.new(1, 10, 'lin', 0.1, 4), formatter=function(p) return string.format("x%.1f", p:get()) end}
   params:add{type = "option", id = "gonio_source", name = "Scope Source", options = {"Pre-Master", "Post-Master"}, default = 2, action = function(x) engine.gonio_source(x-1) end}
-  params:add{type = "option", id = "rec_behavior", name = "Rec Behavior", options = {"Rec->Play", "Rec->Dub"}, default = 2}
+  -- [MOD v2.0] Removed rec_behavior
   params:add{type = "option", id = "load_behavior_reels", name = "Load: Reels", options = {"Stop", "Play"}, default = 1}
   params:add{type = "option", id = "load_behavior_seqs", name = "Load: Seqs", options = {"Stop", "Play"}, default = 2}
   
@@ -421,18 +428,20 @@ function init()
   params:add{type = "control", id = "preset_morph_tape", name = "Grid Morph (Tape)", controlspec = controlspec.new(0.01, 60.0, 'exp', 0.01, 2.0, "s"), formatter=fmt_sec, action=function(x) update_str("preset_morph_tape") end}
 
   for i=1, 4 do
-    params:add_group("TAPE TRACK " .. i, 16) -- [MOD v1.0] Increased group size
+    params:add_group("TAPE TRACK " .. i, 16) 
     params:add{type = "control", id = "l"..i.."_speed", name = "Speed", controlspec = controlspec.new(-2.0, 2.0, 'lin', 0.01, 1.0), formatter=function(p) return string.format("x%.2f", p:get()) end, action = function(x) state.tracks[i].speed = x; Loopers.refresh(i, state) end}
-    params:add{type = "control", id = "l"..i.."_vol", name = "Volume", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.9), formatter=fmt_db, action = function(x) state.tracks[i].vol = x; Loopers.refresh(i, state) end}
+    -- [MOD v2.0] Default Vol 1.0 (0dB)
+    params:add{type = "control", id = "l"..i.."_vol", name = "Volume", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 1.0), formatter=fmt_db, action = function(x) state.tracks[i].vol = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_dub", name = "Overdub", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 1.0), formatter=fmt_percent, action = function(x) state.tracks[i].overdub = x; Loopers.refresh(i, state) end}
     
-    -- [MOD v1.4] Fixed Length Parameter (Calls Refresh)
-    params:add{type = "control", id = "l"..i.."_length", name = "Length", controlspec = controlspec.new(0.1, 120.0, 'exp', 0.01, 4.0, "s"), action = function(x) Loopers.refresh(i, state) end}
+    -- [MOD v2.0] Default Length 10s, Min 0.001s
+    params:add{type = "control", id = "l"..i.."_length", name = "Length", controlspec = controlspec.new(0.001, 120.0, 'exp', 0.01, 10.0, "s"), action = function(x) Loopers.refresh(i, state) end}
 
     params:add{type = "control", id = "l"..i.."_deg", name = "Degrade", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].wow_macro = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_start", name = "Start Point", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].loop_start = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_end", name = "End Point", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 1.0), formatter=fmt_percent, action = function(x) state.tracks[i].loop_end = x; Loopers.refresh(i, state) end}
-    params:add{type = "option", id = "l"..i.."_src", name = "Input Source", options = SRC_OPTIONS, default = 1, action = function(x) state.tracks[i].src_sel = x - 1; Loopers.refresh(i, state) end}
+    -- [MOD v2.0] Default Source 4 (Post Reverb)
+    params:add{type = "option", id = "l"..i.."_src", name = "Input Source", options = SRC_OPTIONS, default = 4, action = function(x) state.tracks[i].src_sel = x - 1; Loopers.refresh(i, state) end}
     
     params:add{
         type = "control", 
@@ -444,7 +453,7 @@ function init()
     }
     
     params:add{type = "control", id = "l"..i.."_aux", name = "Aux Send", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].aux_send = x; Loopers.refresh(i, state) end}
-    params:add{type = "control", id = "l"..i.."_xfade", name = "Crossfade", controlspec = controlspec.new(0.001, 1.0, 'exp', 0.001, 0.01, "s"), formatter=fmt_sec, action = function(x) state.tracks[i].xfade = x; Loopers.refresh(i, state) end}
+    -- [MOD v2.0] Removed xfade param
     
     params:add{type = "control", id = "l"..i.."_low", name = "Mixer Low", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0, "dB"), formatter=fmt_raw_db, action = function(x) state.tracks[i].l_low = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_high", name = "Mixer High", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0, "dB"), formatter=fmt_raw_db, action = function(x) state.tracks[i].l_high = x; Loopers.refresh(i, state) end}
