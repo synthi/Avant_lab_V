@@ -1,6 +1,5 @@
 -- Avant_lab_V lib/grid.lua | Version 2022
--- UPDATE: FATAL REGRESSION FIXED. Sequencers & Presets RESTORED. Code Cleaned.
--- MODIFIED v1.6: Fixed Pointer Visibility & Transport Logic (Direct Overdub)
+-- MODIFIED v2.0: Removed rec_behavior, Fixed Pointer Visibility.
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -9,7 +8,6 @@ local g -- Ref
 
 local levels_cache = {}
 for i=1, 16 do levels_cache[i] = {int=0, frac=0} end
--- [CLEAN] Removed SPEED_STEPS
 local VS_VALS = {-2.0, -1.5, -1.0, -0.5, -0.25, 0.0, 0.25, 0.5, 1.0, 1.5, 2.0}
 
 local MAX_BRIGHT = 12
@@ -67,8 +65,6 @@ local function draw_tape_view(state)
     local s = math.floor((track.loop_start or 0) * 15) + 1
     local e = math.floor((track.loop_end or 1) * 15) + 1
 
-    -- [MOD v1.6] Pointer Visibility Fix
-    -- If track is not empty (State 1), assume it has audio/potential
     local has_audio = (track.state ~= 1)
     local is_paused = (track.state == 5)
     
@@ -502,7 +498,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         return
      end
      
-     -- [MOD v1.6] TRANSPORT (13-16) - Fixed Length Logic
+     -- [MOD v2.0] TRANSPORT (13-16) - Fixed Length Logic
      if x >= 13 and x <= 16 then 
         local trk = x - 12
         if z == 1 then
@@ -532,7 +528,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                  local next_st = 3 -- Default to Play
                  
                  if st == 5 or st == 0 or st == 1 then 
-                    -- [MOD v1.6] Empty/Stop -> DIRECT OVERDUB (State 4)
+                    -- [MOD v2.0] Empty/Stop -> DIRECT OVERDUB (State 4)
                     -- Ensure buffer is clean if it was empty
                     if st == 1 and engine.clear then engine.clear(trk) end
                     next_st = 4 -- Overdub (Rec+Play)
