@@ -1,7 +1,5 @@
--- Avant_lab_V lib/grid.lua | Version 1.0
--- RELEASE v1.0 (GOLD MASTER):
--- 1. DYNAMIC LOOPING: Rec -> Dub(SetLen Future+150ms) -> Play logic.
--- 2. MICRO-LOOPS: Touch&Hold with Random 80-180ms length.
+-- Avant_lab_V lib/grid.lua | Version 1.2
+-- RELEASE v1.2: Restored full functionality (Presets/Seq). Auto-Loop Timeout.
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -25,7 +23,7 @@ function Grid.init(state, device)
   state.grid_keys_held = {} 
   for i=1, 4 do state.grid_keys_held[i] = {} end
   state.ribbon_memory = {}
-  state.seek_memory = {} -- For micro-loops
+  state.seek_memory = {} 
   state.preset_memory = nil
   state.seq_clicks = {0,0,0,0}
   state.stutter_memory = {} 
@@ -42,9 +40,6 @@ function Grid.init(state, device)
   state.page_press_time = 0
   state.grid_track_held = false
 end
-
--- ... (LED BUF / DRAW FUNCTIONS UNCHANGED FROM v2022) ...
--- (Providing full file content below for safety)
 
 local function led_buf(x, y, val)
    if x >=1 and x <=16 and y >=1 and y <=8 then
@@ -353,7 +348,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         if x >= 5 and x <= 8 then local slot = x - 4; presets_status[slot] = 0; presets_data[slot] = {}; if is_tape_view then state.tape_preset_selected = 0 else state.main_preset_selected = 0 end; return end
         if x >= 13 and x <= 16 then Loopers.clear(x - 12, state); return end
      end
-     -- (FX Logic unchanged)
      if x >= 9 and x <= 12 then 
         local fx_type = ""; if x == 9 then fx_type = "kill" elseif x == 10 then fx_type = "freeze" elseif x == 11 then fx_type = "warble" elseif x == 12 then fx_type = "brake" end
         if z == 1 then
@@ -468,13 +462,13 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         return
      end
      
-     -- [v1.0] TRANSPORT: Dynamic Loop Logic
+     -- [v1.2] TRANSPORT LOGIC with AUTO-LOOP TIMEOUT Check
      if x >= 13 and x <= 16 then 
         local trk = x - 12
         if z == 1 then 
            state.transport_press_time[trk] = util.time()
            if state.k1_held then 
-              state.tracks[trk].state = 5 -- Safe Stop (Feedback 1.0)
+              state.tracks[trk].state = 5 
               Loopers.refresh(trk, state) 
            end
         elseif z == 0 then
@@ -487,29 +481,34 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
            else
               local last_tap = state.transport_last_tap[trk] or 0
               if (now - last_tap) < 0.3 then
-                 state.tracks[trk].state = 5 -- Double tap -> STOP
+                 if state.tracks[trk].state == 4 then state.tracks[trk].state = 3 else state.tracks[trk].state = 5 end
                  Loopers.refresh(trk, state)
               else
                  local st = state.tracks[trk].state
                  local next_st = 3
                  
+                 -- [v1.2] AUTO-LOOP TIMEOUT LOGIC
+                 -- If user started recording (First Pass) but let it run past 60s,
+                 -- the loop wrapped automatically. We must cancel "First Pass" flag.
+                 if state.tracks[trk].first_pass then
+                     local rec_dur = now - (state.tracks[trk].rec_start_time or now)
+                     local max_len = params:get("l"..trk.."_length") -- This returns default 60s if not changed
+                     if rec_dur > max_len then
+                         state.tracks[trk].first_pass = false
+                         -- If we are here, we are just toggling normally now
+                     end
+                 end
+
                  if st == 5 or st == 0 or st == 1 then 
-                    -- 1. EMPTY/STOP -> RECORD (OVERDUB STATE) + CLEAR + SEEK 0
-                    if st == 1 and engine.clear then 
-                        engine.clear(trk); engine["l"..trk.."_seek"](0) 
-                    end
-                    -- Mark this as "First Pass" for dynamic length logic
+                    if st == 1 and engine.clear then engine.clear(trk); engine["l"..trk.."_seek"](0) end
                     state.tracks[trk].first_pass = true
                     state.tracks[trk].rec_start_time = util.time()
                     next_st = 4 
-                 
                  elseif st == 4 and state.tracks[trk].first_pass then
-                    -- 2. FIRST PASS -> SET LENGTH (FUTURE + 150ms) + CONTINUE DUB
                     local dur = util.time() - (state.tracks[trk].rec_start_time or now)
                     params:set("l"..trk.."_length", dur + 0.15)
                     state.tracks[trk].first_pass = false
-                    next_st = 4 -- Stay in Overdub
-                 
+                    next_st = 4 
                  elseif st == 3 then next_st = 4 
                  elseif st == 4 then next_st = 3 
                  elseif st == 2 then next_st = 3 end
@@ -524,7 +523,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
      end
   end
   
-  -- [v1.0] TAPE TOUCH (Micro-Loops)
+  -- TAPE TOUCH
   if is_tape_view and y <= 4 then
      local trk = y
      if z == 1 then 
@@ -533,30 +532,18 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
            clock.sleep(0.06) 
            local count = 0; local min_x = 17; local max_x = 0
            for k, v in pairs(state.grid_keys_held[trk]) do if v then count = count + 1; if k < min_x then min_x = k end; if k > max_x then max_x = k end end end
-           
            if count == 1 then
-              -- 1 FINGER: MICRO-LOOP (Touch & Hold)
               if state.grid_keys_held[trk][x] then 
                  local pos = (x-1)/15
                  local t = state.tracks[trk]
-                 -- Store original points
                  state.seek_memory[trk] = {start_p = t.loop_start or 0, end_p = t.loop_end or 1}
-                 
-                 -- Calculate Random Length (80-180ms)
                  local buf_len = params:get("l"..trk.."_length") or 10.0
                  local rand_ms = math.random(80, 180) / 1000.0
                  local frac = rand_ms / buf_len
-                 
-                 -- Set new points
-                 t.loop_start = pos
-                 t.loop_end = math.min(pos + frac, 1.0)
-                 
-                 -- Update & Jump (Uses t_ trigger now)
-                 Loopers.refresh(trk, state)
-                 engine["l"..trk.."_seek"](pos)
+                 t.loop_start = pos; t.loop_end = math.min(pos + frac, 1.0)
+                 Loopers.refresh(trk, state); engine["l"..trk.."_seek"](pos)
               end
            elseif count >= 2 then
-              -- 2 FINGERS: WINDOW (Set New Loop)
               state.tracks[trk].loop_start = (min_x - 1) / 15
               state.tracks[trk].loop_end = (max_x - 1) / 15
               Loopers.refresh(trk, state)
@@ -564,21 +551,17 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         end)
      elseif z == 0 then 
         state.grid_keys_held[trk][x] = nil 
-        -- ON RELEASE 1-FINGER: Restore and Continue (No Seek)
         local count = 0; for k,v in pairs(state.grid_keys_held[trk]) do if v then count=count+1 end end
         if count == 0 and state.seek_memory[trk] then
-            local t = state.tracks[trk]
-            local mem = state.seek_memory[trk]
-            t.loop_start = mem.start_p
-            t.loop_end = mem.end_p
-            Loopers.refresh(trk, state)
-            state.seek_memory[trk] = nil
+            local t = state.tracks[trk]; local mem = state.seek_memory[trk]
+            t.loop_start = mem.start_p; t.loop_end = mem.end_p
+            Loopers.refresh(trk, state); state.seek_memory[trk] = nil
         end
      end
      return
   end
   
-  -- MIXER / RIBBON (Unchanged)
+  -- MIXER / RIBBON
   if is_tape_view and y == 5 then
      if x <= 4 and z == 1 then state.track_sel = x; state.grid_track_held = true; if state.current_page == 9 then state.mixer_sel = x; state.grid_mixer_held = true end
      elseif x <= 4 and z == 0 then state.grid_mixer_held = false; state.grid_track_held = false end
