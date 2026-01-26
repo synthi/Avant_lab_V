@@ -1,8 +1,9 @@
-// lib/Engine_Avant_lab_V.sc | Version 1.1
+// lib/Engine_Avant_lab_V.sc | Version 1.1.1
 // UPDATE v1.1: 
 // 1. PHYSICS: Wow max 6%. LPF 24dB in feedback. HPF moved to output (fix phase clicks).
 // 2. GAIN: Precise Feedback Compensation Curve based on empirical measurements.
 // 3. SEAMLESS: Stop logic relies on continuous transport (no speed=0).
+// added dub feedback better curve
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -513,16 +514,21 @@ Engine_Avant_lab_V : CroneEngine {
                 
                 sig_out = play_sig; 
                 
-                // [GAIN COMPENSATION] Precise Curve (v1.1)
-                fb_comp_curve = Select.kr(trk_deg > 0.27, [
-                    LinLin.kr(trk_deg, 0.0, 0.27, 1.05, 1.0),
-                    Select.kr(trk_deg > 0.5, [
-                        LinLin.kr(trk_deg, 0.27, 0.5, 1.0, 0.83),
-                        Select.kr(trk_deg > 0.7, [
-                            LinLin.kr(trk_deg, 0.5, 0.7, 0.83, 0.67),
-                            Select.kr(trk_deg > 0.9, [
-                                LinLin.kr(trk_deg, 0.7, 0.9, 0.67, 0.82),
-                                LinLin.kr(trk_deg, 0.9, 1.0, 0.82, 1.02)
+                // [GAIN COMPENSATION - EMPIRICAL CURVE v1.2]
+                var fb_curve = Select.kr(l_deg[i] > 0.15, [
+                    // 0.0 -> 0.15: Boost 0.96 -> 1.15
+                    LinLin.kr(l_deg[i], 0.0, 0.15, 0.96, 1.15),
+                    Select.kr(l_deg[i] > 0.27, [
+                        // 0.15 -> 0.27: Drop 1.15 -> 1.0
+                        LinLin.kr(l_deg[i], 0.15, 0.27, 1.15, 1.0),
+                        Select.kr(l_deg[i] > 0.5, [
+                            // 0.27 -> 0.5: 1.0 -> 0.94
+                            LinLin.kr(l_deg[i], 0.27, 0.5, 1.0, 0.94),
+                            Select.kr(l_deg[i] > 0.8, [
+                                // 0.5 -> 0.8: 0.94 -> 0.64
+                                LinLin.kr(l_deg[i], 0.5, 0.8, 0.94, 0.64),
+                                // 0.8 -> 1.0: 0.64 -> 0.33
+                                LinLin.kr(l_deg[i], 0.8, 1.0, 0.64, 0.33)
                             ])
                         ])
                     ])
