@@ -1,8 +1,14 @@
-// lib/Engine_Avant_lab_V.sc | Version 4014
-// UPDATE v4014 (BUGFIX): 
-// 1. FIX: Resolved "LinExp first input is not control rate" crash.
-//    - Reverted 'organic_brake_hpf' calculation to use 'rate_slew' (KR) instead of 'final_rate' (AR).
-// 2. LOGIC: Flutter stays Audio Rate (AR) for smooth pitch, but Brake Filter uses Control Rate (KR).
+// lib/Engine_Avant_lab_V.sc | Version 1.0
+// RELEASE v1.0 (GOLD MASTER):
+// 1. ARCHITECTURE: Seamless Loop Core (Write Direct, FX on Output).
+// 2. PHYSICS: 
+//    - Drag Flutter (Subtractive Rate) avoids clipping.
+//    - Tone vs Speed (17kHz @ 19cm/s -> 6kHz @ 4.75cm/s).
+// 3. COLOR: 
+//    - Saturation: S-Curve (Bypass < 0.2, Sweet Spot 0.5-0.8, Destroy > 0.85).
+//    - Filters: Degrade HPF (10-100Hz) & LPF (17k-4kHz).
+//    - Gain: Equal Power Compensation + Dynamic Stabilizer.
+// 4. LOGIC: T_ triggers for reliable seeking.
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -16,7 +22,6 @@ Engine_Avant_lab_V : CroneEngine {
     alloc {
         var buffers;
 
-        // 1. RAM ALLOCATION (120s)
         buf1 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
         buf2 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
         buf3 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
@@ -38,12 +43,10 @@ Engine_Avant_lab_V : CroneEngine {
 
         context.server.sync;
 
-        // 2. OSC BRIDGE
         osc_bridge = OSCFunc({ |msg|
             NetAddr("127.0.0.1", 10111).sendMsg("/avant_lab_v/visuals", *msg.drop(3));
         }, '/avant_lab_v/visuals', context.server.addr).fix;
 
-        // 3. DSP DEFINITION
         SynthDef(\avant_lab_v_synth, {
             |out_bus=0, in_bus=0, buf1=0, buf2=0, buf3=0, buf4=0, dummy_buf=0,
              tape_fb_bus_idx=0, aux_return_bus_idx=0, bus_l_idx=0, bus_r_idx=0, 
@@ -52,19 +55,17 @@ Engine_Avant_lab_V : CroneEngine {
              gonio_source=1, main_src_sel=3,
              comp_thresh=0.5, comp_ratio=2.0, comp_drive=0.0, comp_gain=0.0, 
              bass_focus_mode=0, limiter_ceil=0.0, balance=0.0,
-             // Fixed Length & Seek Args
+             // v1.0: T_ triggers used for Seek
              l1_length=120.0, l2_length=120.0, l3_length=120.0, l4_length=120.0,
              l1_seek_pos=0, l2_seek_pos=0, l3_seek_pos=0, l4_seek_pos=0,
-             l1_seek_trig=0, l2_seek_trig=0, l3_seek_trig=0, l4_seek_trig=0| 
+             t_l1_seek_trig=0, t_l2_seek_trig=0, t_l3_seek_trig=0, t_l4_seek_trig=0| 
 
-            // Variables
             var trig_meter, all_visual_data;
             var report_amp_l, report_amp_r, report_gr;
             var sum_l = 0.0, sum_r = 0.0;
             var pointers = Array.fill(4, { DC.kr(0) });
             var bands_clean_read;
 
-            // DSP Vars
             var fb_amt, global_q, xfeed_amt, reverb_mix;
             var reverb_time, reverb_damp;
             var input_amp, noise_amp, noise_type;
@@ -102,7 +103,6 @@ Engine_Avant_lab_V : CroneEngine {
             var bf_freq, bf_mono, bf_highs, bf_processed;
             var noise_L, noise_R;
             var dust_L, dust_R;
-            
             var asym_sat = { |sig| (sig + 0.2).tanh - 0.2 };
 
             monitor_signal = Silent.ar(2);
@@ -182,7 +182,7 @@ Engine_Avant_lab_V : CroneEngine {
             
             l_length = [l1_length, l2_length, l3_length, l4_length];
             l_seek_p = [l1_seek_pos, l2_seek_pos, l3_seek_pos, l4_seek_pos];
-            l_seek_t = [l1_seek_trig, l2_seek_trig, l3_seek_trig, l4_seek_trig];
+            l_seek_t = [t_l1_seek_trig, t_l2_seek_trig, t_l3_seek_trig, t_l4_seek_trig];
             
             synth_buffers = [buf1, buf2, buf3, buf4];
             track_buses = [t1_bus, t2_bus, t3_bus, t4_bus];
@@ -411,14 +411,17 @@ Engine_Avant_lab_V : CroneEngine {
                 var loop_len_samps;
                 var slew_val, sat_low;
                 var write_sig;
-                var final_rate; // New variable for Flutter-Rate logic
+                var final_rate;
+                var tape_physics_cutoff;
+                var fb_comp_curve, fb_dyn_stab;
+                var deg_hpf, deg_lpf;
                 
                 b_idx = synth_buffers[i];
                 bus_idx = track_buses[i];
                 
-                // [MOD v2.0] Ncoco-style Gate (50ms Lag)
-                gate_rec = Lag.kr(l_rec[i], 0.05); 
-                gate_play = Lag.kr(l_play[i], 0.01); 
+                // [SEAMLESS] Lag on gates (100ms) to prevent clicks
+                gate_rec = Lag.kr(l_rec[i], 0.1); 
+                gate_play = Lag.kr(l_play[i], 0.1); 
                 
                 trk_vol = l_vol[i];
                 trk_spd = l_speed[i]; trk_start = l_start[i]; trk_end = l_end[i];
@@ -430,7 +433,7 @@ Engine_Avant_lab_V : CroneEngine {
                 trk_pan = l_pan[i]; trk_width = l_width[i];
                 seek_t = l_seek_t[i]; seek_p = l_seek_p[i];
                 
-                target_buf = b_idx; // Always write to buffer (Continuous Write)
+                target_buf = b_idx; 
                 
                 in = Select.ar(trk_src, [tap_clean, tap_post_tape, tap_post_filter, tap_post_reverb, trk1_in, trk2_in, trk3_in, trk4_in]);
                 brake_idx = (trk_brake * 4).round;
@@ -441,25 +444,20 @@ Engine_Avant_lab_V : CroneEngine {
                 lfo_mod = Lag.kr(lfo_mod, lfo_lag_time);
                 rate_slew = Lag.kr(trk_spd, 0.05) * brake_mod * lfo_mod; 
                 
-                // [UPDATE v4013: Flutter/Wow applied to RATE, not Delay]
-                deg_curve = trk_deg.pow(3.0); 
-                flutter_mod = OnePole.ar(LFNoise2.ar(4 + (i*1.5)).range(0, 0.02 * deg_curve), 0.5);
-                final_rate = rate_slew * (1 + flutter_mod);
+                // [PHYSICS 1] Drag Flutter (v1.0): 0.0->0.0%, 0.4->0.2%, 0.6->2%, 0.8->6%, 1.0->25%
+                deg_curve = trk_deg.pow(4.0); // Power 4 to squash bottom
+                flutter_mod = OnePole.ar(LFNoise2.ar(4 + (i*1.5)).range(0, 0.25 * deg_curve), 0.5);
+                final_rate = rate_slew * (1.0 - flutter_mod);
                 
-                // [FIX v4014]: Use rate_slew (KR) instead of final_rate (AR) for this Control Rate UGen
                 organic_brake_hpf = LinExp.kr(rate_slew.abs + 0.001, 0.001, 1.0, 250, 10);
                 organic_brake_hpf = Lag.kr(organic_brake_hpf, 0.1);
                 flux_gain = (rate_slew.abs * 5.0).clip(0, 1).pow(3);
                 
-                // [MOD v2.0] Fixed Length & Windowing Logic (Corrected SampleRate)
                 loop_len_samps = l_length[i].max(0.001) * SampleRate.ir;
+                // [SEAMLESS] Lag on Windowing to prevent click when moving start/end
+                start_pos = Lag.kr(trk_start, 0.1) * loop_len_samps;
+                end_pos = (Lag.kr(trk_end, 0.1) * loop_len_samps).max(start_pos + 10);
                 
-                // Windowing: Start/End are 0..1 percentages of the fixed length
-                start_pos = trk_start * loop_len_samps;
-                end_pos = (trk_end * loop_len_samps).max(start_pos + 10);
-                
-                // Phasor constrained by Window (start/end) but resettable via Seek
-                // Uses final_rate (with Flutter) for seamless transport
                 ptr = Phasor.ar(seek_t, final_rate * BufRateScale.kr(b_idx), start_pos, end_pos, seek_p * loop_len_samps);
                 
                 pointers[i] = A2K.kr(ptr / loop_len_samps); 
@@ -467,7 +465,22 @@ Engine_Avant_lab_V : CroneEngine {
                 
                 play_sig = BufRd.ar(2, b_idx, ptr, 1, 2);
                 
-                // Degradation Path (Amplitude & Filter)
+                // [PHYSICS] DEGRADE FILTERS (v1.0)
+                // HPF: 10Hz -> 60Hz (@0.5) -> 100Hz (@1.0)
+                deg_hpf = Select.kr(trk_deg > 0.5, [
+                    LinExp.kr(trk_deg, 0.0, 0.5, 10, 60),
+                    LinExp.kr(trk_deg, 0.5, 1.0, 60, 100)
+                ]);
+                // LPF: 17k -> 12k (@0.5) -> 4k (@1.0)
+                deg_lpf = Select.kr(trk_deg > 0.5, [
+                    LinExp.kr(trk_deg, 0.0, 0.5, 17000, 12000),
+                    LinExp.kr(trk_deg, 0.5, 1.0, 12000, 4000)
+                ]);
+                
+                play_sig = HPF.ar(play_sig, deg_hpf);
+                play_sig = LPF.ar(play_sig, deg_lpf);
+                
+                // Degradation Extras (Erosion/Corrosion)
                 corrosion_am = 1.0 - (LFNoise2.kr(8 + (i*2)).unipolar * deg_curve * 0.6);
                 play_sig = play_sig * corrosion_am;
                 loop_ero = LinLin.kr(trk_deg, 0.4, 1.0, 0.0, 0.5).max(0);
@@ -476,35 +489,63 @@ Engine_Avant_lab_V : CroneEngine {
                 loop_gain_loss = (loop_dropout_env * loop_ero).clip(0, 0.9);
                 play_sig = play_sig * (1.0 - loop_gain_loss);
                 
-                // [UPDATE v4013: Removed DelayC here. Flutter is now in final_rate]
+                // [PHYSICS 2] S-Curve Saturation (v1.0) with Bypass
+                // 0.0-0.2: Bypass
+                // 0.2-0.5: 1.0->1.5 | 0.5-0.85: 1.5->3.0 | >0.85: 3.0->4.5
+                sat_drive = Select.kr(trk_deg > 0.2, [
+                    DC.kr(1.0),
+                    Select.kr(trk_deg > 0.5, [
+                        LinLin.kr(trk_deg, 0.2, 0.5, 1.0, 1.5),
+                        Select.kr(trk_deg > 0.85, [
+                            LinLin.kr(trk_deg, 0.5, 0.85, 1.5, 3.0),
+                            LinLin.kr(trk_deg, 0.85, 1.0, 3.0, 4.5)
+                        ])
+                    ])
+                ]);
                 
-                cutoff = LinExp.kr(deg_curve, 0, 1, 20000, 2100);
-                play_sig = LPF.ar(play_sig, cutoff);
-                play_sig = (play_sig * (1 + (deg_curve * 0.8))).tanh;
+                // Only saturate if Degrade > 0.2
+                play_sig = Select.ar(trk_deg < 0.2, [
+                    (play_sig * sat_drive).tanh,
+                    play_sig 
+                ]);
+                
                 dynamic_cutoff = (rate_slew.abs * 20000).clip(10, 20000);
                 play_sig = LPF.ar(play_sig, dynamic_cutoff);
                 
                 sig_out = play_sig; 
                 
-                // [MOD v2.0] Continuous Write Logic (Tape Style)
-                // Always write: (Feedback * DubAmount) + (Input * GateRec)
-                // GateRec only controls input, not writing.
-                write_sig = (play_sig * trk_dub) + (in * trk_rec_amp * gate_rec);
+                // [GAIN COMPENSATION] Equal Power + Dynamic Stabilizer (v1.0)
+                // 0.0->1.0, 0.5->0.82, 0.7->0.70, 1.0->0.32
+                fb_comp_curve = Select.kr(trk_deg > 0.5, [
+                    LinLin.kr(trk_deg, 0.0, 0.5, 1.0, 0.82),
+                    Select.kr(trk_deg > 0.7, [
+                        LinLin.kr(trk_deg, 0.5, 0.7, 0.82, 0.70),
+                        LinLin.kr(trk_deg, 0.7, 1.0, 0.70, 0.32)
+                    ])
+                ]);
                 
-                // [UPDATE v4013: Removed LeakDC from Write. Tanh preserved for Avant saturation]
-                BufWr.ar(write_sig.tanh, target_buf, ptr);
+                // Dynamic: Soft-knee compression if feedback > 0.8
+                fb_dyn_stab = 1.0 - (Amplitude.kr(play_sig, 0.05, 0.1).max(0.8) - 0.8 * 0.5).clip(0, 0.5);
+                
+                write_sig = (play_sig * trk_dub * fb_comp_curve * fb_dyn_stab) + (in * trk_rec_amp * gate_rec);
+                
+                // [SEAMLESS FIX] Write direct (no extra processing)
+                BufWr.ar(write_sig, target_buf, ptr);
                 
                 output_sig = sig_out * gate_play; 
+                
+                // [PHYSICS 3] Tone vs Speed (17k -> 6k)
+                tape_physics_cutoff = LinExp.ar(final_rate.abs.max(0.01), 0.25, 1.0, 6000, 17000).clip(1000, 20000);
+                output_sig = LPF.ar(output_sig, tape_physics_cutoff);
+                
                 output_sig = HPF.ar(output_sig, organic_brake_hpf);
                 output_sig = output_sig * flux_gain;
                 
                 // [KLANGFILM W86a EMULATION]
-                // 1. LOWS ("Iron")
                 sat_low = output_sig.squared * 0.2 * trk_low.max(0); 
                 output_sig = (output_sig + sat_low).distort; 
                 output_sig = BLowShelf.ar(output_sig, 60, 0.6, trk_low);
                 
-                // 2. HIGHS ("Silk")
                 output_sig = BHiShelf.ar(output_sig, 10000, 0.6, trk_high);
                 slew_val = LinExp.kr(trk_high.max(0), 0, 12, 20000, 2000); 
                 output_sig = Slew.ar(output_sig, slew_val, slew_val);
@@ -635,16 +676,17 @@ Engine_Avant_lab_V : CroneEngine {
         this.addCommand("l_width", "if", { |msg| synth.set(("l" ++ msg[1] ++ "_width").asSymbol, msg[2]); });
         this.addCommand("l_rec_lvl", "if", { |msg| synth.set(("l" ++ msg[1] ++ "_rec_lvl").asSymbol, msg[2]); });
         
-        // [MOD v2.0] Config Commands (13 args, removed xfade)
-        this.addCommand("l1_config", "fffffffffffff", { |msg| synth.set(\l1_rec, msg[1], \l1_play, msg[2], \l1_vol, msg[3], \l1_speed, msg[4], \l1_start, msg[5], \l1_end, msg[6], \l1_src, msg[7], \l1_dub, msg[8], \l1_aux, msg[9], \l1_deg, msg[10], \l1_brake, msg[11], \l1_length, msg[12]); });
-        this.addCommand("l2_config", "fffffffffffff", { |msg| synth.set(\l2_rec, msg[1], \l2_play, msg[2], \l2_vol, msg[3], \l2_speed, msg[4], \l2_start, msg[5], \l2_end, msg[6], \l2_src, msg[7], \l2_dub, msg[8], \l2_aux, msg[9], \l2_deg, msg[10], \l2_brake, msg[11], \l2_length, msg[12]); });
-        this.addCommand("l3_config", "fffffffffffff", { |msg| synth.set(\l3_rec, msg[1], \l3_play, msg[2], \l3_vol, msg[3], \l3_speed, msg[4], \l3_start, msg[5], \l3_end, msg[6], \l3_src, msg[7], \l3_dub, msg[8], \l3_aux, msg[9], \l3_deg, msg[10], \l3_brake, msg[11], \l3_length, msg[12]); });
-        this.addCommand("l4_config", "fffffffffffff", { |msg| synth.set(\l4_rec, msg[1], \l4_play, msg[2], \l4_vol, msg[3], \l4_speed, msg[4], \l4_start, msg[5], \l4_end, msg[6], \l4_src, msg[7], \l4_dub, msg[8], \l4_aux, msg[9], \l4_deg, msg[10], \l4_brake, msg[11], \l4_length, msg[12]); });
+        // [v1.0] Config Commands (12 floats)
+        this.addCommand("l1_config", "ffffffffffff", { |msg| synth.set(\l1_rec, msg[1], \l1_play, msg[2], \l1_vol, msg[3], \l1_speed, msg[4], \l1_start, msg[5], \l1_end, msg[6], \l1_src, msg[7], \l1_dub, msg[8], \l1_aux, msg[9], \l1_deg, msg[10], \l1_brake, msg[11], \l1_length, msg[12]); });
+        this.addCommand("l2_config", "ffffffffffff", { |msg| synth.set(\l2_rec, msg[1], \l2_play, msg[2], \l2_vol, msg[3], \l2_speed, msg[4], \l2_start, msg[5], \l2_end, msg[6], \l2_src, msg[7], \l2_dub, msg[8], \l2_aux, msg[9], \l2_deg, msg[10], \l2_brake, msg[11], \l2_length, msg[12]); });
+        this.addCommand("l3_config", "ffffffffffff", { |msg| synth.set(\l3_rec, msg[1], \l3_play, msg[2], \l3_vol, msg[3], \l3_speed, msg[4], \l3_start, msg[5], \l3_end, msg[6], \l3_src, msg[7], \l3_dub, msg[8], \l3_aux, msg[9], \l3_deg, msg[10], \l3_brake, msg[11], \l3_length, msg[12]); });
+        this.addCommand("l4_config", "ffffffffffff", { |msg| synth.set(\l4_rec, msg[1], \l4_play, msg[2], \l4_vol, msg[3], \l4_speed, msg[4], \l4_start, msg[5], \l4_end, msg[6], \l4_src, msg[7], \l4_dub, msg[8], \l4_aux, msg[9], \l4_deg, msg[10], \l4_brake, msg[11], \l4_length, msg[12]); });
         
-        this.addCommand("l1_seek", "f", { |msg| synth.set(\l1_seek_p, msg[1], \l1_seek_t, 1); });
-        this.addCommand("l2_seek", "f", { |msg| synth.set(\l2_seek_p, msg[1], \l2_seek_t, 1); });
-        this.addCommand("l3_seek", "f", { |msg| synth.set(\l3_seek_p, msg[1], \l3_seek_t, 1); });
-        this.addCommand("l4_seek", "f", { |msg| synth.set(\l4_seek_p, msg[1], \l4_seek_t, 1); });
+        // [v1.0] Seek Triggers (t_)
+        this.addCommand("l1_seek", "f", { |msg| synth.set(\l1_seek_pos, msg[1], \t_l1_seek_trig, 1); });
+        this.addCommand("l2_seek", "f", { |msg| synth.set(\l2_seek_pos, msg[1], \t_l2_seek_trig, 1); });
+        this.addCommand("l3_seek", "f", { |msg| synth.set(\l3_seek_pos, msg[1], \t_l3_seek_trig, 1); });
+        this.addCommand("l4_seek", "f", { |msg| synth.set(\l4_seek_pos, msg[1], \t_l4_seek_trig, 1); });
         
         this.addCommand("feedback", "f", { |msg| synth.set(\fb_amt, msg[1]); });
         this.addCommand("global_q", "f", { |msg| synth.set(\global_q, msg[1]); });
