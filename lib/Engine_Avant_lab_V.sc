@@ -514,21 +514,16 @@ Engine_Avant_lab_V : CroneEngine {
                 
                 sig_out = play_sig; 
                 
-                // [GAIN COMPENSATION - EMPIRICAL CURVE v1.2]
-                var fb_curve = Select.kr(l_deg[i] > 0.15, [
-                    // 0.0 -> 0.15: Boost 0.96 -> 1.15
-                    LinLin.kr(l_deg[i], 0.0, 0.15, 0.96, 1.15),
-                    Select.kr(l_deg[i] > 0.27, [
-                        // 0.15 -> 0.27: Drop 1.15 -> 1.0
-                        LinLin.kr(l_deg[i], 0.15, 0.27, 1.15, 1.0),
-                        Select.kr(l_deg[i] > 0.5, [
-                            // 0.27 -> 0.5: 1.0 -> 0.94
-                            LinLin.kr(l_deg[i], 0.27, 0.5, 1.0, 0.94),
-                            Select.kr(l_deg[i] > 0.8, [
-                                // 0.5 -> 0.8: 0.94 -> 0.64
-                                LinLin.kr(l_deg[i], 0.5, 0.8, 0.94, 0.64),
-                                // 0.8 -> 1.0: 0.64 -> 0.33
-                                LinLin.kr(l_deg[i], 0.8, 1.0, 0.64, 0.33)
+                // [GAIN COMPENSATION] Precise Curve (v1.2)
+                fb_comp_curve = Select.kr(trk_deg > 0.15, [
+                    LinLin.kr(trk_deg, 0.0, 0.15, 0.96, 1.15),
+                    Select.kr(trk_deg > 0.27, [
+                        LinLin.kr(trk_deg, 0.15, 0.27, 1.15, 1.0),
+                        Select.kr(trk_deg > 0.5, [
+                            LinLin.kr(trk_deg, 0.27, 0.5, 1.0, 0.94),
+                            Select.kr(trk_deg > 0.8, [
+                                LinLin.kr(trk_deg, 0.5, 0.8, 0.94, 0.64),
+                                LinLin.kr(trk_deg, 0.8, 1.0, 0.64, 0.33)
                             ])
                         ])
                     ])
