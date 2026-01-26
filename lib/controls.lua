@@ -1,6 +1,5 @@
--- Avant_lab_V lib/controls.lua | Version 2055
--- UPDATE: RM Wave Toggle Fixed (2 states)
--- MODIFIED v1.0: Page 7 Remapped for Fixed Length
+-- Avant_lab_V lib/controls.lua | Version 1.2
+-- RELEASE v1.2: Added Secondary Encoder Support (E4 Degrade).
 
 local Controls = {}
 local fileselect = require 'fileselect'
@@ -92,7 +91,6 @@ Pages[3] = {
    end,
    key = function(n, z, s)
       if n==2 and z==1 then 
-         -- [UPDATE v2055] Fixed toggle for 2 waves
          local w = params:get("rm_wave"); w = w%2 + 1; params:set("rm_wave", w)
       elseif n==3 and z==1 then 
          local nt = params:get("noise_type"); params:set("noise_type", nt == 5 and 0 or nt + 1)
@@ -178,25 +176,19 @@ Pages[6] = {
 Pages[7] = {
    enc = function(n, d, s)
       if (s.k1_held or s.mod_shift_16 or s.grid_shift_active or s.grid_track_held) then
-         -- [MOD v1.0] Secondary Layer
          if n==1 then 
-            -- Alt+E1: Rec Level
             local id = "l"..s.track_sel.."_rec_lvl"
             params:delta(id, d)
          elseif n==2 then Loopers.delta_param("start", d, s)
          elseif n==3 then Loopers.delta_param("end", d, s) end
       else
-         -- [MOD v1.0] Primary Layer
          if n==1 then 
-            -- E1: Speed (Moved from E2)
             Loopers.delta_param("speed", d, s)
          elseif n==2 then 
-            -- E2: Length (New, with inertia)
             local resolution = (math.abs(d) > 1) and 1.0 or 0.01
             local id = "l"..s.track_sel.."_length"
             params:delta(id, d * resolution)
          elseif n==3 then 
-            -- E3: Overdub (Moved from E3)
             Loopers.delta_param("overdub", d, s) 
          end
       end
@@ -280,8 +272,14 @@ Pages[10] = {
 
 function Controls.enc(n, d, state)
    if n == 4 then 
-      if state.k1_held or state.mod_shift_16 or state.grid_shift_active then Loopers.delta_param("wow", d, state)
-      else params:delta("feedback", d) end
+      -- [v1.2] E4: Feedback (Normal) OR Degrade (if Track Held)
+      if state.grid_track_held then
+         Loopers.delta_param("wow", d, state)
+      elseif state.k1_held or state.mod_shift_16 or state.grid_shift_active then 
+         Loopers.delta_param("wow", d, state)
+      else 
+         params:delta("feedback", d) 
+      end
       return
    end
    local p = Pages[state.current_page]
