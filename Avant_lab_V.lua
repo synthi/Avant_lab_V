@@ -396,7 +396,7 @@ function init()
         type = "control", 
         id = "l"..i.."_rec_lvl", 
         name = "Input Level", 
-        controlspec = controlspec.new(-60, 12, 'lin', 0.1, -6.0, "dB"), 
+        controlspec = controlspec.new(-60, 12, 'lin', 0.1, -1.0, "dB"), 
         formatter = fmt_raw_db,
         action = function(x) state.tracks[i].rec_level = x; Loopers.refresh(i, state) end
     }
