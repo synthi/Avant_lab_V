@@ -1,14 +1,8 @@
-// lib/Engine_Avant_lab_V.sc | Version 1.0
-// RELEASE v1.0 (GOLD MASTER):
-// 1. ARCHITECTURE: Seamless Loop Core (Write Direct, FX on Output).
-// 2. PHYSICS: 
-//    - Drag Flutter (Subtractive Rate) avoids clipping.
-//    - Tone vs Speed (17kHz @ 19cm/s -> 6kHz @ 4.75cm/s).
-// 3. COLOR: 
-//    - Saturation: S-Curve (Bypass < 0.2, Sweet Spot 0.5-0.8, Destroy > 0.85).
-//    - Filters: Degrade HPF (10-100Hz) & LPF (17k-4kHz).
-//    - Gain: Equal Power Compensation + Dynamic Stabilizer.
-// 4. LOGIC: T_ triggers for reliable seeking.
+// lib/Engine_Avant_lab_V.sc | Version 1.1
+// UPDATE v1.1: 
+// 1. PHYSICS: Wow max 6%. LPF 24dB in feedback. HPF moved to output (fix phase clicks).
+// 2. GAIN: Precise Feedback Compensation Curve based on empirical measurements.
+// 3. SEAMLESS: Stop logic relies on continuous transport (no speed=0).
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth;
@@ -21,7 +15,7 @@ Engine_Avant_lab_V : CroneEngine {
 
     alloc {
         var buffers;
-
+        // RAM: 120s buffers
         buf1 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
         buf2 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
         buf3 = Buffer.alloc(context.server, context.server.sampleRate * 120.0, 2);
@@ -55,8 +49,7 @@ Engine_Avant_lab_V : CroneEngine {
              gonio_source=1, main_src_sel=3,
              comp_thresh=0.5, comp_ratio=2.0, comp_drive=0.0, comp_gain=0.0, 
              bass_focus_mode=0, limiter_ceil=0.0, balance=0.0,
-             // v1.0: T_ triggers used for Seek
-             l1_length=120.0, l2_length=120.0, l3_length=120.0, l4_length=120.0,
+             l1_length=60.0, l2_length=60.0, l3_length=60.0, l4_length=60.0,
              l1_seek_pos=0, l2_seek_pos=0, l3_seek_pos=0, l4_seek_pos=0,
              t_l1_seek_trig=0, t_l2_seek_trig=0, t_l3_seek_trig=0, t_l4_seek_trig=0| 
 
@@ -419,7 +412,7 @@ Engine_Avant_lab_V : CroneEngine {
                 b_idx = synth_buffers[i];
                 bus_idx = track_buses[i];
                 
-                // [SEAMLESS] Lag on gates (100ms) to prevent clicks
+                // [SEAMLESS] Lag on gates (100ms)
                 gate_rec = Lag.kr(l_rec[i], 0.1); 
                 gate_play = Lag.kr(l_play[i], 0.1); 
                 
@@ -444,9 +437,17 @@ Engine_Avant_lab_V : CroneEngine {
                 lfo_mod = Lag.kr(lfo_mod, lfo_lag_time);
                 rate_slew = Lag.kr(trk_spd, 0.05) * brake_mod * lfo_mod; 
                 
-                // [PHYSICS 1] Drag Flutter (v1.0): 0.0->0.0%, 0.4->0.2%, 0.6->2%, 0.8->6%, 1.0->25%
-                deg_curve = trk_deg.pow(4.0); // Power 4 to squash bottom
-                flutter_mod = OnePole.ar(LFNoise2.ar(4 + (i*1.5)).range(0, 0.25 * deg_curve), 0.5);
+                // [PHYSICS 1] Drag Flutter (Max 6% at 0.8, 10% at 1.0)
+                // Curve: 0.0-0.6 (0-2%), 0.6-0.8 (2-6%), 0.8-1.0 (6-10%)
+                flutter_mod = Select.kr(trk_deg > 0.6, [
+                    LinLin.kr(trk_deg, 0.0, 0.6, 0.0, 0.02),
+                    Select.kr(trk_deg > 0.8, [
+                        LinLin.kr(trk_deg, 0.6, 0.8, 0.02, 0.06),
+                        LinLin.kr(trk_deg, 0.8, 1.0, 0.06, 0.10)
+                    ])
+                ]);
+                // Apply randomness
+                flutter_mod = OnePole.ar(LFNoise2.ar(4 + (i*1.5)).range(0, flutter_mod), 0.5);
                 final_rate = rate_slew * (1.0 - flutter_mod);
                 
                 organic_brake_hpf = LinExp.kr(rate_slew.abs + 0.001, 0.001, 1.0, 250, 10);
@@ -454,7 +455,6 @@ Engine_Avant_lab_V : CroneEngine {
                 flux_gain = (rate_slew.abs * 5.0).clip(0, 1).pow(3);
                 
                 loop_len_samps = l_length[i].max(0.001) * SampleRate.ir;
-                // [SEAMLESS] Lag on Windowing to prevent click when moving start/end
                 start_pos = Lag.kr(trk_start, 0.1) * loop_len_samps;
                 end_pos = (Lag.kr(trk_end, 0.1) * loop_len_samps).max(start_pos + 10);
                 
@@ -465,23 +465,23 @@ Engine_Avant_lab_V : CroneEngine {
                 
                 play_sig = BufRd.ar(2, b_idx, ptr, 1, 2);
                 
-                // [PHYSICS] DEGRADE FILTERS (v1.0)
+                // [PHYSICS] DEGRADE FILTERS (v1.1)
                 // HPF: 10Hz -> 60Hz (@0.5) -> 100Hz (@1.0)
                 deg_hpf = Select.kr(trk_deg > 0.5, [
                     LinExp.kr(trk_deg, 0.0, 0.5, 10, 60),
                     LinExp.kr(trk_deg, 0.5, 1.0, 60, 100)
                 ]);
-                // LPF: 17k -> 12k (@0.5) -> 4k (@1.0)
+                // LPF (24dB): 17k -> 12k (@0.5) -> 4k (@1.0)
                 deg_lpf = Select.kr(trk_deg > 0.5, [
                     LinExp.kr(trk_deg, 0.0, 0.5, 17000, 12000),
                     LinExp.kr(trk_deg, 0.5, 1.0, 12000, 4000)
                 ]);
                 
-                play_sig = HPF.ar(play_sig, deg_hpf);
-                play_sig = LPF.ar(play_sig, deg_lpf);
+                // 4-Pole LPF for bandwidth limit, HPF removed from loop
+                play_sig = LPF.ar(LPF.ar(play_sig, deg_lpf), deg_lpf);
                 
-                // Degradation Extras (Erosion/Corrosion)
-                corrosion_am = 1.0 - (LFNoise2.kr(8 + (i*2)).unipolar * deg_curve * 0.6);
+                // Degradation Extras
+                corrosion_am = 1.0 - (LFNoise2.kr(8 + (i*2)).unipolar * trk_deg * 0.6);
                 play_sig = play_sig * corrosion_am;
                 loop_ero = LinLin.kr(trk_deg, 0.4, 1.0, 0.0, 0.5).max(0);
                 loop_dust_trig = Dust.kr(loop_ero * 15);
@@ -489,8 +489,7 @@ Engine_Avant_lab_V : CroneEngine {
                 loop_gain_loss = (loop_dropout_env * loop_ero).clip(0, 0.9);
                 play_sig = play_sig * (1.0 - loop_gain_loss);
                 
-                // [PHYSICS 2] S-Curve Saturation (v1.0) with Bypass
-                // 0.0-0.2: Bypass
+                // [PHYSICS 2] S-Curve Saturation (v1.1) with Bypass < 0.2
                 // 0.2-0.5: 1.0->1.5 | 0.5-0.85: 1.5->3.0 | >0.85: 3.0->4.5
                 sat_drive = Select.kr(trk_deg > 0.2, [
                     DC.kr(1.0),
@@ -503,7 +502,7 @@ Engine_Avant_lab_V : CroneEngine {
                     ])
                 ]);
                 
-                // Only saturate if Degrade > 0.2
+                // Saturation inside feedback loop
                 play_sig = Select.ar(trk_deg < 0.2, [
                     (play_sig * sat_drive).tanh,
                     play_sig 
@@ -514,22 +513,23 @@ Engine_Avant_lab_V : CroneEngine {
                 
                 sig_out = play_sig; 
                 
-                // [GAIN COMPENSATION] Equal Power + Dynamic Stabilizer (v1.0)
-                // 0.0->1.0, 0.5->0.82, 0.7->0.70, 1.0->0.32
-                fb_comp_curve = Select.kr(trk_deg > 0.5, [
-                    LinLin.kr(trk_deg, 0.0, 0.5, 1.0, 0.82),
-                    Select.kr(trk_deg > 0.7, [
-                        LinLin.kr(trk_deg, 0.5, 0.7, 0.82, 0.70),
-                        LinLin.kr(trk_deg, 0.7, 1.0, 0.70, 0.32)
+                // [GAIN COMPENSATION] Precise Curve (v1.1)
+                fb_comp_curve = Select.kr(trk_deg > 0.27, [
+                    LinLin.kr(trk_deg, 0.0, 0.27, 1.05, 1.0),
+                    Select.kr(trk_deg > 0.5, [
+                        LinLin.kr(trk_deg, 0.27, 0.5, 1.0, 0.83),
+                        Select.kr(trk_deg > 0.7, [
+                            LinLin.kr(trk_deg, 0.5, 0.7, 0.83, 0.67),
+                            Select.kr(trk_deg > 0.9, [
+                                LinLin.kr(trk_deg, 0.7, 0.9, 0.67, 0.82),
+                                LinLin.kr(trk_deg, 0.9, 1.0, 0.82, 1.02)
+                            ])
+                        ])
                     ])
                 ]);
                 
-                // Dynamic: Soft-knee compression if feedback > 0.8
-                fb_dyn_stab = 1.0 - (Amplitude.kr(play_sig, 0.05, 0.1).max(0.8) - 0.8 * 0.5).clip(0, 0.5);
+                write_sig = (play_sig * trk_dub * fb_comp_curve) + (in * trk_rec_amp * gate_rec);
                 
-                write_sig = (play_sig * trk_dub * fb_comp_curve * fb_dyn_stab) + (in * trk_rec_amp * gate_rec);
-                
-                // [SEAMLESS FIX] Write direct (no extra processing)
                 BufWr.ar(write_sig, target_buf, ptr);
                 
                 output_sig = sig_out * gate_play; 
@@ -537,6 +537,9 @@ Engine_Avant_lab_V : CroneEngine {
                 // [PHYSICS 3] Tone vs Speed (17k -> 6k)
                 tape_physics_cutoff = LinExp.ar(final_rate.abs.max(0.01), 0.25, 1.0, 6000, 17000).clip(1000, 20000);
                 output_sig = LPF.ar(output_sig, tape_physics_cutoff);
+                
+                // HPF moved to Output (prevent phase clicks in feedback)
+                output_sig = HPF.ar(output_sig, deg_hpf);
                 
                 output_sig = HPF.ar(output_sig, organic_brake_hpf);
                 output_sig = output_sig * flux_gain;
