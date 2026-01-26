@@ -1,5 +1,7 @@
--- Avant_lab_V lib/loopers.lua | Version 321.2
--- MODIFIED v2.0: Continuous Write Logic, Removed Xfade, Updated Config.
+-- Avant_lab_V lib/loopers.lua | Version 1.0
+-- RELEASE v1.0 (GOLD MASTER):
+-- 1. STOP FIX: State 5 forces Feedback=1.0 and Speed=0 to prevent erasure.
+-- 2. SEAMLESS REFRESH: Updated args for v4015 engine.
 
 local Loopers = {}
 local util = require 'util'
@@ -31,27 +33,33 @@ function Loopers.refresh(t_idx, state)
   local t = state.tracks[t_idx]
   if not t then return end
   
-  -- [MOD v2.0] Continuous Write Logic
-  -- gate_rec = 1 when we want to record INPUT.
-  -- gate_play = 1 when we want to hear OUTPUT.
+  -- [v1.0] Continuous Write Logic & Safety
   local gate_rec = 0.0; local gate_play = 0.0; local send_dub = 0.0
+  local speed_override = nil
   
-  if t.state == 2 then gate_rec = 1.0; gate_play = 0.0; send_dub = 0.0 
-  -- elseif t.state == 3 then gate_rec = 0.0; gate_play = 1.0; send_dub = 0.0 
-  elseif t.state == 3 then gate_rec = 0.0; gate_play = 1.0; send_dub = t.overdub or 1.0 
-  elseif t.state == 4 then gate_rec = 1.0; gate_play = 1.0; send_dub = t.overdub or 1.0 
-  elseif t.state == 5 then gate_rec = 0.0; gate_play = 0.0; send_dub = 0.0 
-  elseif t.state == 1 then gate_rec = 0.0; gate_play = 0.0; send_dub = 0.0 end 
+  if t.state == 2 then 
+      gate_rec = 1.0; gate_play = 0.0; send_dub = 0.0 
+  elseif t.state == 3 then 
+      gate_rec = 0.0; gate_play = 1.0; send_dub = t.overdub or 1.0 
+  elseif t.state == 4 then 
+      gate_rec = 1.0; gate_play = 1.0; send_dub = t.overdub or 1.0 
+  elseif t.state == 5 then 
+      -- [v1.0] SAFETY STOP: Freeze Feedback, Kill Input, Stop Motor
+      gate_rec = 0.0; gate_play = 0.0; send_dub = 1.0 
+      speed_override = 0.0 -- Force stop motor in SC
+  elseif t.state == 1 then 
+      gate_rec = 0.0; gate_play = 0.0; send_dub = 0.0 
+  end 
   
   local sc_start = util.clamp(t.loop_start or 0, 0, 1)
   local sc_end = util.clamp(t.loop_end or 1, 0, 1)
   if sc_end <= sc_start then sc_end = sc_start + 0.001 end
   
   local length = params:get("l"..t_idx.."_length")
+  local final_speed = speed_override or (t.speed or 1.0)
   
-  -- [MOD v2.0] Removed xfade arg
   local args = {
-      f(gate_rec), f(gate_play), f(t.vol or 0.5), f(t.speed or 1.0),
+      f(gate_rec), f(gate_play), f(t.vol or 0.5), f(final_speed),
       f(sc_start), f(sc_end), f(t.src_sel), f(send_dub),
       f(t.aux_send), f(t.wow_macro), f(t.brake_amt or 0),
       f(length)
@@ -154,19 +162,17 @@ function Loopers.delta_param(param_name, d, state)
 end
 
 function Loopers.transport_rec(state, idx, action_type)
+   -- Legacy access point
    if action_type == "press" then
       local t = state.tracks[idx]
-      
       if t.state == 5 or t.state == 0 or t.state == 1 then
-         if t.state == 1 and engine.clear then engine.clear(idx) end
-         t.state = 4 -- Direct to Overdub
-      elseif t.state == 3 then
-         t.state = 4 -- Play -> Overdub
-      elseif t.state == 4 then
-         t.state = 3 -- Overdub -> Play
-      elseif t.state == 2 then
-         t.state = 3
-      end
+         if t.state == 1 and engine.clear then 
+             engine.clear(idx); engine["l"..idx.."_seek"](0) 
+         end
+         t.state = 4 
+      elseif t.state == 3 then t.state = 4 
+      elseif t.state == 4 then t.state = 3 
+      elseif t.state == 2 then t.state = 3 end
       Loopers.refresh(idx, state)
    end
 end
