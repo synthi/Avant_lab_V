@@ -1,5 +1,8 @@
--- Avant_lab_V lib/grid.lua | Version 1.2
--- RELEASE v1.2: Restored full functionality (Presets/Seq). Auto-Loop Timeout.
+-- Avant_lab_V lib/grid.lua | Version 1.3
+-- RELEASE v1.3:
+-- 1. PRESETS: Fixed. Now saves audio snapshots to disk when saving a preset.
+-- 2. AUTO-LOOP: Timeout mechanism prevents accidental second-pass resizing.
+-- 3. SEQ: Full sequencer logic restored.
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -23,7 +26,7 @@ function Grid.init(state, device)
   state.grid_keys_held = {} 
   for i=1, 4 do state.grid_keys_held[i] = {} end
   state.ribbon_memory = {}
-  state.seek_memory = {} 
+  state.seek_memory = {}
   state.preset_memory = nil
   state.seq_clicks = {0,0,0,0}
   state.stutter_memory = {} 
@@ -348,6 +351,8 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         if x >= 5 and x <= 8 then local slot = x - 4; presets_status[slot] = 0; presets_data[slot] = {}; if is_tape_view then state.tape_preset_selected = 0 else state.main_preset_selected = 0 end; return end
         if x >= 13 and x <= 16 then Loopers.clear(x - 12, state); return end
      end
+     
+     -- FX
      if x >= 9 and x <= 12 then 
         local fx_type = ""; if x == 9 then fx_type = "kill" elseif x == 10 then fx_type = "freeze" elseif x == 11 then fx_type = "warble" elseif x == 12 then fx_type = "brake" end
         if z == 1 then
@@ -386,6 +391,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         end
         return
      end
+
      if x <= 4 then 
         local slot = x; local r = rec_slots[slot]
         if z==1 then r.press_time = util.time()
@@ -411,6 +417,8 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         end
         return
      end
+
+     -- [FIX v1.2] PRESET AUDIO SAVING LOGIC
      if x >= 5 and x <= 8 then 
         local slot = x - 4
         if z == 1 then
@@ -420,7 +428,17 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
            if presets_status[slot] == 0 then
              if is_tape_view then
                 local saved_tracks = {}
-                for i=1,4 do local t = state.tracks[i]; saved_tracks[i] = {speed=t.speed, vol=t.vol, loop_start=t.loop_start, loop_end=t.loop_end, state=t.state, overdub=t.overdub, file_path=t.file_path, l_low=t.l_low, l_high=t.l_high, l_filter=t.l_filter, l_pan=t.l_pan, l_width=t.l_width} end
+                for i=1,4 do 
+                    local t = state.tracks[i]
+                    -- [v1.2] Auto-Save Audio if Dirty
+                    if t.rec_len and t.rec_len > 0.1 then
+                        local name = _path.audio .. "Avant_lab_V/snapshots/preset_" .. slot .. "_trk_" .. i .. ".wav"
+                        engine.buffer_write(i, name, t.rec_len)
+                        t.file_path = name
+                        print("Saved Snapshot: " .. name)
+                    end
+                    saved_tracks[i] = {speed=t.speed, vol=t.vol, loop_start=t.loop_start, loop_end=t.loop_end, state=t.state, overdub=t.overdub, file_path=t.file_path, l_low=t.l_low, l_high=t.l_high, l_filter=t.l_filter, l_pan=t.l_pan, l_width=t.l_width} 
+                end
                 presets_data[slot] = { tracks = saved_tracks }; state.tape_preset_selected = slot
              else
                 local saved_gains = {}; for i=1, 16 do saved_gains[i] = state.bands_gain[i] end
@@ -431,7 +449,16 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
            elseif is_current then
               if is_tape_view then
                 local saved_tracks = {}
-                for i=1,4 do local t = state.tracks[i]; saved_tracks[i] = {speed=t.speed, vol=t.vol, loop_start=t.loop_start, loop_end=t.loop_end, state=t.state, overdub=t.overdub, file_path=t.file_path, l_low=t.l_low, l_high=t.l_high, l_filter=t.l_filter, l_pan=t.l_pan, l_width=t.l_width} end
+                for i=1,4 do 
+                    local t = state.tracks[i]
+                    -- [v1.2] Update snapshot if changed
+                    if t.rec_len and t.rec_len > 0.1 then
+                        local name = _path.audio .. "Avant_lab_V/snapshots/preset_" .. slot .. "_trk_" .. i .. ".wav"
+                        engine.buffer_write(i, name, t.rec_len)
+                        t.file_path = name
+                    end
+                    saved_tracks[i] = {speed=t.speed, vol=t.vol, loop_start=t.loop_start, loop_end=t.loop_end, state=t.state, overdub=t.overdub, file_path=t.file_path, l_low=t.l_low, l_high=t.l_high, l_filter=t.l_filter, l_pan=t.l_pan, l_width=t.l_width} 
+                end
                 presets_data[slot] = { tracks = saved_tracks }
               else
                 local saved_gains = {}; for i=1, 16 do saved_gains[i] = state.bands_gain[i] end
@@ -443,7 +470,13 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                  state.morph_tape_active = true; state.morph_tape_slot = slot; state.morph_tape_start_time = util.time(); state.tape_preset_selected = slot
                  local target = presets_data[slot]
                  if target and target.tracks then
-                    for i=1,4 do if target.tracks[i] and target.tracks[i].state then state.tracks[i].state = target.tracks[i].state; Loopers.refresh(i, state) end end
+                    for i=1,4 do 
+                        -- [v1.2] Load Audio if present
+                        if target.tracks[i] and target.tracks[i].file_path then
+                            Loopers.load_file(i, target.tracks[i].file_path, state)
+                        end
+                        if target.tracks[i] and target.tracks[i].state then state.tracks[i].state = target.tracks[i].state; Loopers.refresh(i, state) end 
+                    end
                  end
               else
                  state.morph_main_src = {}
@@ -462,13 +495,13 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         return
      end
      
-     -- [v1.2] TRANSPORT LOGIC with AUTO-LOOP TIMEOUT Check
+     -- TRANSPORT
      if x >= 13 and x <= 16 then 
         local trk = x - 12
         if z == 1 then 
            state.transport_press_time[trk] = util.time()
            if state.k1_held then 
-              state.tracks[trk].state = 5 
+              state.tracks[trk].state = 5 -- Safe Stop (Feedback 1.0)
               Loopers.refresh(trk, state) 
            end
         elseif z == 0 then
@@ -488,14 +521,11 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                  local next_st = 3
                  
                  -- [v1.2] AUTO-LOOP TIMEOUT LOGIC
-                 -- If user started recording (First Pass) but let it run past 60s,
-                 -- the loop wrapped automatically. We must cancel "First Pass" flag.
                  if state.tracks[trk].first_pass then
                      local rec_dur = now - (state.tracks[trk].rec_start_time or now)
-                     local max_len = params:get("l"..trk.."_length") -- This returns default 60s if not changed
+                     local max_len = params:get("l"..trk.."_length")
                      if rec_dur > max_len then
                          state.tracks[trk].first_pass = false
-                         -- If we are here, we are just toggling normally now
                      end
                  end
 
