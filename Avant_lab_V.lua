@@ -1,5 +1,5 @@
--- Avant_lab_V.lua | Version 1.1
--- RELEASE v1.1: Updated defaults (Feedback 120%, Loops 60s).
+-- Avant_lab_V.lua | Version 1.2
+-- RELEASE v1.2: Feedback range 120%, Default Levels adjusted (-6dB Rec, 0dB Vol).
 
 engine.name = 'Avant_lab_V'
 
@@ -161,7 +161,6 @@ function update_morph_tape()
            local t_dest = target.tracks[i]
            local skip = false
            if t_dest and t_dest.state == 1 and state.tracks[i].rec_len and state.tracks[i].rec_len > 0.1 then skip = true end
-           
            if t_dest and not skip then
               state.tracks[i].speed = t_dest.speed; state.tracks[i].vol = t_dest.vol
               state.tracks[i].loop_start = t_dest.loop_start; state.tracks[i].loop_end = t_dest.loop_end
@@ -181,7 +180,6 @@ function update_morph_tape()
            local t_dest = target.tracks[i]; local t_src = state.morph_tape_src[i]
            local skip = false
            if t_dest and t_dest.state == 1 and state.tracks[i].rec_len and state.tracks[i].rec_len > 0.1 then skip = true end
-           
            if t_dest and t_src and not skip then
               local s_speed = t_src.speed or 1.0; local d_speed = t_dest.speed or 1.0
               state.tracks[i].speed = s_speed + ((d_speed - s_speed) * progress)
@@ -208,39 +206,21 @@ end
 
 function osc.event(path, args, from)
   if not state.loaded then return end
-
-  if path == "/ping_pulse" then
-    table.insert(state.ping_pulses, {t0 = util.time(), amp = args[1], jitter = params:get("ping_jitter")})
+  if path == "/ping_pulse" then table.insert(state.ping_pulses, {t0 = util.time(), amp = args[1], jitter = params:get("ping_jitter")})
   elseif path == "/buffer_info" then
-    local idx = math.floor(args[1])
-    local dur = args[2]
-    state.tracks[idx].rec_len = dur
-    Loopers.refresh(idx, state)
+    local idx = math.floor(args[1]); local dur = args[2]
+    state.tracks[idx].rec_len = dur; Loopers.refresh(idx, state)
     print("Reel " .. idx .. " duration updated: " .. dur)
-    
   elseif path == "/avant_lab_v/visuals" then
     if args and #args >= 23 then
-        state.amp_l = args[1]
-        state.amp_r = args[2]
-        state.comp_gr = args[3]
-        
+        state.amp_l = args[1]; state.amp_r = args[2]; state.comp_gr = args[3]
         local h = state.heads.gonio
         state.gonio_history[h].s = util.clamp((args[1]+args[2])*0.5 * (params:get("scope_zoom") or 4) * 10, 0, 22)
         state.gonio_history[h].w = util.clamp(math.abs(args[1]-args[2])*0.5 * (params:get("scope_zoom") or 4) * 20, 0, 20)
         state.heads.gonio = (h % state.GONIO_LEN) + 1
-        
-        for i=1, 4 do
-            local raw_pos = args[3+i] 
-            local t = state.tracks[i]
-            t.play_pos = util.clamp(raw_pos, 0, 1)
-        end
-        
+        for i=1, 4 do local raw_pos = args[3+i]; state.tracks[i].play_pos = util.clamp(raw_pos, 0, 1) end
         local smooth_factor = 0.25
-        for i=1, 16 do 
-            local target = args[7+i]
-            local current = state.band_levels[i] or 0
-            state.band_levels[i] = current + ((target - current) * smooth_factor)
-        end
+        for i=1, 16 do local target = args[7+i]; local current = state.band_levels[i] or 0; state.band_levels[i] = current + ((target - current) * smooth_factor) end
     end
   end
 end
@@ -255,9 +235,7 @@ function ping_tick()
     if mode == 2 and (params:get("ping_active") == 2) and params:get("ping_steps") > 0 then
         if state.ping_pattern and #state.ping_pattern > 0 then
             state.ping_step_counter = (state.ping_step_counter % params:get("ping_steps")) + 1
-            if state.ping_pattern[state.ping_step_counter] then 
-                engine.ping_sequence(1) 
-            end
+            if state.ping_pattern[state.ping_step_counter] then engine.ping_sequence(1) end
         end
     end
     clock.sync(DIV_VALUES[params:get("ping_div") or 3])
@@ -271,11 +249,9 @@ function rec_play_tick_main(slot)
       else
          local event = r.data[r.step]
          if event then
-           local rate = 2 ^ params:get("seq_rate_main")
-           if rate == 0 then rate = 0.001 end 
+           local rate = 2 ^ params:get("seq_rate_main"); if rate == 0 then rate = 0.001 end 
            local next_time = 0
-           if r.step < #r.data then next_time = (r.data[r.step+1].dt - event.dt) / rate
-           else next_time = (r.duration - event.dt) / rate end
+           if r.step < #r.data then next_time = (r.data[r.step+1].dt - event.dt) / rate else next_time = (r.duration - event.dt) / rate end
            if next_time < 0 then next_time = 0 end
            if event.x and event.y and event.z then Grid.key(event.x, event.y, event.z, state, engine, 1) end
            if next_time > 0 then clock.sleep(next_time) end
@@ -292,11 +268,9 @@ function rec_play_tick_tape(slot)
       else
          local event = r.data[r.step]
          if event then
-           local rate = 2 ^ params:get("seq_rate_tape")
-           if rate == 0 then rate = 0.001 end 
+           local rate = 2 ^ params:get("seq_rate_tape"); if rate == 0 then rate = 0.001 end 
            local next_time = 0
-           if r.step < #r.data then next_time = (r.data[r.step+1].dt - event.dt) / rate
-           else next_time = (r.duration - event.dt) / rate end
+           if r.step < #r.data then next_time = (r.data[r.step+1].dt - event.dt) / rate else next_time = (r.duration - event.dt) / rate end
            if next_time < 0 then next_time = 0 end
            if event.x and event.y and event.z then Grid.key(event.x, event.y, event.z, state, engine, 7, event.tid) end
            if next_time > 0 then clock.sleep(next_time) end
@@ -321,21 +295,14 @@ function init()
   params:add_separator("AVANT_LAB_V")
   
   params:add_group("GLOBAL", 11) 
-  params:add{type = "control", id = "feedback", name = "Feedback", controlspec = controlspec.new(0, 1.2, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) set_p("feedback", x) end}
+  -- [v1.2] Feedback Range 120% (1.2)
+  params:add{type = "control", id = "feedback", name = "Feedback", controlspec = controlspec.new(0, 1.2, 'lin', 0.001, 1.0), formatter=fmt_percent, action = function(x) set_p("feedback", x) end}
   params:add{type = "control", id = "global_q", name = "Global Q", controlspec = controlspec.new(0.5, 80.0, 'exp', 0, 1.0), formatter=function(p) return string.format("%.1f", p:get()) end, action = function(x) set_p("global_q", x) end}
   params:add{type = "control", id = "system_dirt", name = "System Dirt", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.05), formatter=fmt_percent, action = function(x) set_p("system_dirt", x) end}
   
-  params:add{
-    type = "control", id = "main_mon", name = "Main Monitor", 
-    controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.833), 
-    formatter = fmt_db,
-    action = function(x) set_p("main_mon", x) end
-  }
+  params:add{type = "control", id = "main_mon", name = "Main Monitor", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.833), formatter = fmt_db, action = function(x) set_p("main_mon", x) end}
   
-  params:add{type = "option", id = "main_source", name = "Monitor Source",
-    options = {"Clean In", "Post Tape", "Post Filter", "Post Reverb"}, default = 4,
-    action = function(x) engine.main_source(x-1); update_str("main_source") end
-  }
+  params:add{type = "option", id = "main_source", name = "Monitor Source", options = {"Clean In", "Post Tape", "Post Filter", "Post Reverb"}, default = 4, action = function(x) engine.main_source(x-1); update_str("main_source") end}
   
   params:add{type = "control", id = "fader_slew", name = "Fader Slew", controlspec = controlspec.new(0.01, 10.0, 'exp', 0.01, 0.05, "s"), formatter=fmt_sec, action = function(x) set_p("fader_slew", x) end}
   params:add{type = "control", id = "scope_zoom", name = "Scope Zoom", controlspec = controlspec.new(1, 10, 'lin', 0.1, 4), formatter=function(p) return string.format("x%.1f", p:get()) end}
@@ -362,14 +329,13 @@ function init()
   params:add{type = "control", id = "balance", name = "Master Balance", controlspec = controlspec.new(-1.0, 1.0, 'lin', 0.01, 0.0), formatter=function(p) return string.format("%.2f", p:get()) end, action = function(x) set_p("balance", x) end}
   
   params:add_group("PING GENERATOR", 10)
+  -- (Ping params same as v1.1)
   params:add{type = "option", id = "ping_active", name = "Generator", options = {"Off", "On"}, default = 1, action = function(x) engine.ping_active(x-1) end}
   params:add{type = "option", id = "ping_mode", name = "Ping Mode", options = {"Internal (Free)", "Euclidean (Sync)"}, default = 1, action = function(x) engine.ping_mode(x-1) end}
   params:add{type = "control", id = "ping_amp", name = "Ping Level", controlspec = controlspec.new(0, 2.0, 'lin', 0.01, 1.0), formatter=fmt_percent, action = function(x) set_p("ping_amp", x) end}
   params:add{type = "control", id = "ping_timbre", name = "Mix (Low/High)", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), formatter=fmt_percent, action = function(x) set_p("ping_timbre", x) end}
   params:add{type = "control", id = "ping_jitter", name = "Jitter (Rhythm)", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), formatter=fmt_percent, action = function(x) set_p("ping_jitter", x) end}
-  
   params:add{type = "control", id = "ping_rate", name = "Int Rate (Hz)", controlspec = controlspec.new(0.125, 20.0, 'exp', 0.01, 1.0, "Hz"), formatter=fmt_hz, action = function(x) set_p("ping_rate", x) end}
-    
   params:add{type = "option", id = "ping_div", name = "Euc Division", options = {"1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/64", "1/128", "1/256"}, default = 3, action=function() update_str("ping_div") end}
   params:add{type = "number", id = "ping_steps", name = "Euc Steps", min = 1, max = 32, default = 16, action = function(x) update_ping_pattern() end}
   params:add{type = "number", id = "ping_hits", name = "Euc Hits", min = 0, max = 32, default = 4, action = function(x) update_ping_pattern() end}
@@ -377,33 +343,25 @@ function init()
 
   params:add_group("RING MODULATOR", 5)
   params:add{type = "control", id = "rm_drive", name = "RM Drive", controlspec = controlspec.new(0, 24.0, 'lin', 0.1, 6.0, "dB"), formatter=fmt_raw_db, action = function(x) set_p("rm_drive", x) end}
-  
   params:add{type = "control", id = "rm_freq", name = "Carrier Freq", controlspec = controlspec.new(0.1, 4000.0, 'exp', 0.1, 100.0, "Hz"), formatter=fmt_hz, action = function(x) set_p("rm_freq", x) end}
-    
   params:add{type = "option", id = "rm_wave", name = "Carrier Wave", options = {"Sine", "Square"}, default = 1, action = function(x) engine.rm_wave(x-1) end}
   params:add{type = "control", id = "rm_mix", name = "Dry/Wet Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), formatter=fmt_percent, action = function(x) set_p("rm_mix", x) end}
   params:add{type = "control", id = "rm_instability", name = "Instability", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), formatter=fmt_percent, action = function(x) set_p("rm_instability", x) end}
 
   params:add_group("FILTER BANK", 9)
   params:add{type = "control", id = "filter_mix", name = "Filter Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 1.0), formatter=fmt_percent, action = function(x) set_p("filter_mix", x) end}
-  
   params:add{type = "control", id = "pre_hpf", name = "Low Cut (HPF)", controlspec = controlspec.new(20, 999, 'exp', 0, 20, "Hz"), formatter=fmt_hz, action = function(x) set_p("pre_hpf", x) end}
   params:add{type = "control", id = "pre_lpf", name = "High Cut (LPF)", controlspec = controlspec.new(150, 20000, 'exp', 0, 20000, "Hz"), formatter=fmt_hz, action = function(x) set_p("pre_lpf", x) end}
-    
   params:add{type = "control", id = "stabilizer", name = "Stabilizer", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.5), formatter=fmt_percent, action = function(x) set_p("stabilizer", x) end}
   params:add{type = "control", id = "crossfeed", name = "Cross Feed", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.25), formatter=fmt_percent, action = function(x) set_p("crossfeed", x) end}
   params:add{type = "control", id = "spread", name = "Spread (Odd/Even)", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.75), formatter=fmt_percent, action = function(x) set_p("spread", x) end}
-  
   params:add{type = "control", id = "swirl_depth", name = "Swirl Depth", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.0), formatter=fmt_percent, action = function(x) set_p("swirl_depth", x) end}
   params:add{type = "control", id = "swirl_rate", name = "Swirl Rate", controlspec = controlspec.new(0.01, 15.0, 'exp', 0.01, 0.01, "Hz"), formatter=function(p) return string.format("%.2fHz", p:get()) end, action = function(x) set_p("swirl_rate", x) end}
-  
   params:add{type = "control", id = "filter_drift", name = "Filter Drift", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) set_p("filter_drift", x) end}
 
   params:add_group("LFO MODULATION", 3)
   params:add{type = "control", id = "lfo_depth", name = "Global Intensity", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), formatter=fmt_percent, action = function(x) set_p("lfo_depth", x) end}
-  
   params:add{type = "control", id = "lfo_rate", name = "Global Rate", controlspec = controlspec.new(0.01, 2.0, 'exp', 0.01, 0.1, "Hz"), formatter=fmt_hz, action = function(x) set_p("lfo_rate", x) end}
-    
   params:add{type = "control", id = "lfo_min_db", name = "LFO Target DB", controlspec = controlspec.new(-90, 0, 'lin', 1, -60, "dB"), formatter=fmt_raw_db, action = function(x) set_p("lfo_min_db", x) end}
 
   params:add_group("MAIN TAPE ECHO", 7)
@@ -424,29 +382,25 @@ function init()
   for i=1, 4 do
     params:add_group("TAPE TRACK " .. i, 16) 
     params:add{type = "control", id = "l"..i.."_speed", name = "Speed", controlspec = controlspec.new(-2.0, 2.0, 'lin', 0.01, 1.0), formatter=function(p) return string.format("x%.2f", p:get()) end, action = function(x) state.tracks[i].speed = x; Loopers.refresh(i, state) end}
-    -- [v1.1] Defaults: Vol 1.0
-    params:add{type = "control", id = "l"..i.."_vol", name = "Volume", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 1.0), formatter=fmt_db, action = function(x) state.tracks[i].vol = x; Loopers.refresh(i, state) end}
+    -- [v1.2] Track Vol Default 0dB (approx 0.833 linear)
+    params:add{type = "control", id = "l"..i.."_vol", name = "Volume", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.833), formatter=fmt_db, action = function(x) state.tracks[i].vol = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_dub", name = "Overdub", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 1.0), formatter=fmt_percent, action = function(x) state.tracks[i].overdub = x; Loopers.refresh(i, state) end}
-    
-    -- [v1.1] Length Default: 60s
     params:add{type = "control", id = "l"..i.."_length", name = "Length", controlspec = controlspec.new(0.001, 120.0, 'exp', 0.01, 60.0, "s"), action = function(x) Loopers.refresh(i, state) end}
-
     params:add{type = "control", id = "l"..i.."_deg", name = "Degrade", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].wow_macro = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_start", name = "Start Point", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].loop_start = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_end", name = "End Point", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 1.0), formatter=fmt_percent, action = function(x) state.tracks[i].loop_end = x; Loopers.refresh(i, state) end}
     params:add{type = "option", id = "l"..i.."_src", name = "Input Source", options = SRC_OPTIONS, default = 4, action = function(x) state.tracks[i].src_sel = x - 1; Loopers.refresh(i, state) end}
-    
+    -- [v1.2] Rec Level Default -6dB (approx 0.75 linear in -60 to 12 scale)
     params:add{
         type = "control", 
         id = "l"..i.."_rec_lvl", 
         name = "Input Level", 
-        controlspec = controlspec.new(-60, 12, 'lin', 0.1, 0, "dB"), 
+        controlspec = controlspec.new(-60, 12, 'lin', 0.1, -6.0, "dB"), 
         formatter = fmt_raw_db,
         action = function(x) state.tracks[i].rec_level = x; Loopers.refresh(i, state) end
     }
     
     params:add{type = "control", id = "l"..i.."_aux", name = "Aux Send", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].aux_send = x; Loopers.refresh(i, state) end}
-    
     params:add{type = "control", id = "l"..i.."_low", name = "Mixer Low", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0, "dB"), formatter=fmt_raw_db, action = function(x) state.tracks[i].l_low = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_high", name = "Mixer High", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0, "dB"), formatter=fmt_raw_db, action = function(x) state.tracks[i].l_high = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_filter", name = "Mixer Filter", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.5), formatter=fmt_percent, action = function(x) state.tracks[i].l_filter = x; Loopers.refresh(i, state) end}
@@ -536,7 +490,7 @@ function init()
      local status, err = pcall(function()
         clock.sleep(0.5) 
         state.loaded = true
-        print("Avant_lab_V: UI Loaded (v1.1).")
+        print("Avant_lab_V: UI Loaded (v1.2).")
      end)
      if not status then print("Avant_lab_V: Init Error: " .. err) end
   end)
