@@ -299,7 +299,7 @@ function init()
   
   params:add_group("GLOBAL", 10) 
   -- [v1.2] Feedback Range 120% (1.2)
-  params:add{type = "control", id = "feedback", name = "Feedback", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 1.0), formatter=fmt_percent, action = function(x) set_p("feedback", x) end}
+  params:add{type = "control", id = "feedback", name = "Feedback", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0), formatter=fmt_percent, action = function(x) set_p("feedback", x) end}
   params:add{type = "control", id = "global_q", name = "Global Q", controlspec = controlspec.new(0.5, 80.0, 'exp', 0, 12.0), formatter=function(p) return string.format("%.1f", p:get()) end, action = function(x) set_p("global_q", x) end}
   params:add{type = "control", id = "system_dirt", name = "System Dirt", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.05), formatter=fmt_percent, action = function(x) set_p("system_dirt", x) end}
   
