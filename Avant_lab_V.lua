@@ -1,8 +1,9 @@
--- Avant_lab_V.lua | Version 1.6.1
+-- Avant_lab_V.lua | Version 1.6.2
 -- RELEASE v1.6: 
 -- 1. 16n: Added Aux Layer (Hold Track Select -> Faders 1-4 = Aux).
 -- 2. TUNING: Speed step 0.002, Dub max 1.1, Rec def -3dB.
 -- restored defaults
+-- refactored menus
 
 engine.name = 'Avant_lab_V'
 
@@ -336,7 +337,7 @@ function init()
   
   params:add_separator("AVANT_LAB_V")
   
-  params:add_group("GLOBAL", 11) 
+  params:add_group("GLOBAL", 10) 
   params:add{type = "control", id = "feedback", name = "Feedback", controlspec = controlspec.new(0, 1.2, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) set_p("feedback", x) end}
   params:add{type = "control", id = "global_q", name = "Global Q", controlspec = controlspec.new(0.5, 80.0, 'exp', 0, 12.8), formatter=function(p) return string.format("%.1f", p:get()) end, action = function(x) set_p("global_q", x) end}
   params:add{type = "control", id = "system_dirt", name = "System Dirt", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.03), formatter=fmt_percent, action = function(x) set_p("system_dirt", x) end}
@@ -422,7 +423,7 @@ function init()
   params:add{type = "control", id = "preset_morph_tape", name = "Grid Morph (Tape)", controlspec = controlspec.new(0.01, 60.0, 'exp', 0.01, 2.0, "s"), formatter=fmt_sec, action=function(x) update_str("preset_morph_tape") end}
 
   for i=1, 4 do
-    params:add_group("TAPE TRACK " .. i, 16) 
+    params:add_group("TAPE TRACK " .. i, 15) 
     -- [v1.6] Speed step 0.002
     params:add{type = "control", id = "l"..i.."_speed", name = "Speed", controlspec = controlspec.new(-2.0, 2.0, 'lin', 0.002, 1.0), formatter=function(p) return string.format("x%.2f", p:get()) end, action = function(x) state.tracks[i].speed = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_vol", name = "Volume", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.833), formatter=fmt_db, action = function(x) state.tracks[i].vol = x; Loopers.refresh(i, state) end}
