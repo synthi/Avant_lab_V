@@ -1,8 +1,7 @@
--- Avant_lab_V lib/controls.lua | Version 1.6.1
+-- Avant_lab_V lib/controls.lua | Version 1.6.2
 -- RELEASE v1.6: 
--- 1. WAVETABLE TUNING: Holding Track Select + E2 = Fine Tune Length.
+-- 1. WAVETABLE TUNING: Holding Track Select + E2 = Fine Tune Length (0.005).
 -- 2. MAPPING: While Holding Track -> E1=RecLvl, E2=FineLen, E3=Dub (Primary).
--- adjusted fine tuning resolution
 
 local Controls = {}
 local fileselect = require 'fileselect'
@@ -188,7 +187,7 @@ Pages[7] = {
             params:delta(id, d)
          elseif n==2 then 
             -- E2: SUPER FINE LENGTH (Wavetable Tuning)
-            -- Delta is extremely small for pitch precision
+            -- Delta 0.005 for fine control
             local id = "l"..s.track_sel.."_length"
             params:delta(id, d * 0.005) 
          elseif n==3 then 

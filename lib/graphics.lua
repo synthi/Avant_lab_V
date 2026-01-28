@@ -1,5 +1,6 @@
--- Avant_lab_V lib/graphics.lua | Version 1.5.1
--- RELEASE v1.5: 16n Popup (Y=11, W=124).
+-- Avant_lab_V lib/graphics.lua | Version 1.6
+-- RELEASE v1.6: 
+-- 1. VISUALS: Dynamic labels for Wavetable Mode (Track Held).
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -43,20 +44,14 @@ local function draw_16n_popup(state)
         if util.time() > state.popup.deadline then
             state.popup.active = false
         else
-            -- Draw Black Box at Y=11, X=2, W=124, H=11
             screen.level(0)
             screen.rect(2, 11, 124, 11)
             screen.fill()
-            
-            -- Draw Border
             screen.level(15)
             screen.rect(2, 11, 124, 11)
             screen.stroke()
-            
-            -- Draw Text
             screen.move(64, 19)
             screen.text_center(state.popup.name .. ": " .. state.popup.value)
-            --screen.text_center(state.popup.value)
         end
     end
 end
@@ -257,7 +252,20 @@ function Graphics.draw(state)
      local sel = state.track_sel or 1
      local t = state.tracks[sel]
      screen.level(3); screen.move(55, 8); screen.text("DEGRADE"); screen.level(6); screen.move(55, 15); screen.text(string.format("%.2f", t.wow_macro or 0))
-     if not shift then
+     
+     -- [v1.6] DYNAMIC LABELS FOR WAVETABLE MODE
+     if state.grid_track_held then
+        -- E1: REC LVL
+        draw_left_e1("REC LVL", string.format("%.1fdB", t.rec_level or 0))
+        -- E2: FINE LEN
+        screen.level(3); screen.move(55, 53); screen.text("FINE LEN"); 
+        screen.level(15); screen.move(55, 60); 
+        screen.text(string.format("%.4fs", params:get("l"..sel.."_length")))
+        -- E3: DUB
+        screen.level(3); screen.move(95, 53); screen.text("DUB"); 
+        screen.level(15); screen.move(95, 60); 
+        screen.text(string.format("%.0f%%", (t.overdub or 0.5)*100))
+     elseif not shift then
        local speed = t.speed or 1; local dir_sym = speed < 0 and "<<" or ">>"
        draw_left_e1("SPEED", string.format("%s %.2f", dir_sym, math.abs(speed)))
        screen.level(3); screen.move(55, 53); screen.text("LENGTH"); 
