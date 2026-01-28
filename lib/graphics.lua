@@ -1,5 +1,5 @@
--- Avant_lab_V lib/graphics.lua | Version 1.4
--- RELEASE v1.4: 16n Popup Support (Y=22, Black BG).
+-- Avant_lab_V lib/graphics.lua | Version 1.5
+-- RELEASE v1.5: 16n Popup (Y=11, W=124).
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -37,30 +37,30 @@ local function draw_right_param_pair(label1, text1, label2, text2)
   screen.level(15); screen.move(col2_x, value_y); screen.text(text2)
 end
 
--- [NEW] 16n Popup Drawer
+-- [v1.5] 16n Popup Drawer (Safe Zone Y=11, W=124)
 local function draw_16n_popup(state)
-    if state.popup.active then
+    if state.popup and state.popup.active then
         if util.time() > state.popup.deadline then
             state.popup.active = false
         else
-            -- Draw Black Box at Y=22 (Safe Zone)
+            -- Draw Black Box at Y=11, X=2, W=124, H=11
             screen.level(0)
-            screen.rect(10, 22, 108, 12)
+            screen.rect(2, 11, 124, 11)
             screen.fill()
             
             -- Draw Border
             screen.level(15)
-            screen.rect(10, 22, 108, 12)
+            screen.rect(2, 11, 124, 11)
             screen.stroke()
             
             -- Draw Text
-            screen.move(64, 30)
-            screen.text_center(state.popup.name .. ": " .. state.popup.value)
+            screen.move(64, 19)
+            screen.text_center(state.popup.value)
         end
     end
 end
 
--- ... (Rest of drawing functions UNCHANGED from v2052) ...
+-- ... (Rest of drawing functions UNCHANGED) ...
 -- (Providing full file content below for safety)
 
 local function draw_goniometer_block(state)
@@ -170,7 +170,6 @@ local function draw_mixer_view(state, shift)
      screen.level(is_sel and 15 or 2); screen.font_size(8); screen.move(x+8, y_top); screen.text(i)
   end
   
-  -- [NEW] Draw Popup on top
   draw_16n_popup(state)
   screen.update()
 end
