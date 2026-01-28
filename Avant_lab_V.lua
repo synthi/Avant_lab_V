@@ -1,4 +1,4 @@
--- Avant_lab_V.lua | Version 1.5
+-- Avant_lab_V.lua | Version 1.5.1
 -- RELEASE v1.5: 16n Integration (Soft Takeover, Glue, Visuals) + New Defaults.
 
 engine.name = 'Avant_lab_V'
@@ -114,7 +114,7 @@ local function handle_16n(msg)
         else
             -- Show Directional Popup
             state.popup.name = fader_names[id] or p_obj.name
-            local dir = (diff > 0) and " ( >> )" or " ( << )"
+            local dir = (diff > 0) and " ( << )" or " ( >> )"
             
             -- Format Ghost Value
             local ghost_str = p_obj:string() -- This gets current, we need ghost...
@@ -352,7 +352,7 @@ function init()
   -- [v1.5] Feedback 0.0
   params:add{type = "control", id = "feedback", name = "Feedback", controlspec = controlspec.new(0, 1.2, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) set_p("feedback", x) end}
   -- [v1.5] Global Q 12.8
-  params:add{type = "control", id = "global_q", name = "Global Q", controlspec = controlspec.new(0.5, 80.0, 'exp', 0, 12.8), formatter=function(p) return string.format("%.1f", p:get()) end, action = function(x) set_p("global_q", x) end}
+  params:add{type = "control", id = "global_q", name = "Global Q", controlspec = controlspec.new(0.5, 80.0, 'exp', 0, 14.8), formatter=function(p) return string.format("%.1f", p:get()) end, action = function(x) set_p("global_q", x) end}
   -- [v1.5] Dirt 0.03
   params:add{type = "control", id = "system_dirt", name = "System Dirt", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.03), formatter=fmt_percent, action = function(x) set_p("system_dirt", x) end}
   
@@ -372,7 +372,7 @@ function init()
   params:add{type = "option", id = "noise_type", name = "Noise Type", options = {"Pink", "White", "Crackle", "DigiRain", "Lorenz", "Grit"}, action = function(x) engine.noise_type(x-1) end}
 
   params:add_group("TAPE VERB", 3)
-  params:add{type = "control", id = "reverb_mix", name = "Reverb Mix", controlspec = controlspec.new(0, 1, 'lin', 0.001, 1.0), formatter=fmt_percent, action = function(x) set_p("reverb_mix", x) end}
+  params:add{type = "control", id = "reverb_mix", name = "Reverb Mix", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.20), formatter=fmt_percent, action = function(x) set_p("reverb_mix", x) end}
   params:add{type = "control", id = "reverb_time", name = "Reverb Decay", controlspec = controlspec.new(0.1, 60.0, 'exp', 0.1, 1.5, "s"), formatter=fmt_sec, action = function(x) set_p("reverb_time", x) end}
   params:add{type = "control", id = "reverb_damp", name = "Reverb Damp", controlspec = controlspec.new(100, 20000, 'exp', 10, 10000, "Hz"), formatter=fmt_hz, action = function(x) set_p("reverb_damp", x) end}
   
