@@ -1,6 +1,6 @@
--- Avant_lab_V.lua | Version 1.5.1
+-- Avant_lab_V.lua | Version 1.5.2
 -- RELEASE v1.5: 16n Integration (Soft Takeover, Glue, Visuals) + New Defaults.
-
+-- ADJUST SPEED RESOLUTION
 engine.name = 'Avant_lab_V'
 
 local Globals = include('lib/globals')
