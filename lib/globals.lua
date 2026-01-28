@@ -1,5 +1,5 @@
--- Avant_lab_V lib/globals.lua | Version 2027
--- UPDATE: CRITICAL RESTORE of History Buffers & Length Constants to prevent Graphics Crash
+-- Avant_lab_V lib/globals.lua | Version 1.4
+-- RELEASE v1.4: Added 'popup' and 'fader_latched' for 16n support.
 
 local Globals = {}
 
@@ -15,7 +15,6 @@ function Globals.new()
   s.grid_memory = {}
   s.grid_cache = {} 
   
-  -- Debounce & Input State
   s.grid_debounce = {}
   s.button_state = {}
   
@@ -31,7 +30,6 @@ function Globals.new()
      end
   end
 
-  -- [CRITICAL] Graphics Dependencies
   s.GONIO_LEN = 80
   s.FILTER_LEN = 60
   
@@ -41,6 +39,17 @@ function Globals.new()
   
   s.heads = {gonio=1, filter=1, time=1}
   s.str_cache = {}
+
+  -- [NEW v1.4] 16n Support Structures
+  s.fader_latched = {}
+  for i=1, 16 do s.fader_latched[i] = false end
+
+  s.popup = {
+    active = false,
+    name = "",
+    value = "",
+    deadline = 0
+  }
 
   s.current_page = 1
   s.k1_held = false; s.mod_shift_16 = false  
