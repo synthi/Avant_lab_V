@@ -1,7 +1,8 @@
--- Avant_lab_V.lua | Version 1.6
+-- Avant_lab_V.lua | Version 1.6.1
 -- RELEASE v1.6: 
 -- 1. 16n: Added Aux Layer (Hold Track Select -> Faders 1-4 = Aux).
 -- 2. TUNING: Speed step 0.002, Dub max 1.1, Rec def -3dB.
+-- restored defaults
 
 engine.name = 'Avant_lab_V'
 
@@ -337,8 +338,8 @@ function init()
   
   params:add_group("GLOBAL", 11) 
   params:add{type = "control", id = "feedback", name = "Feedback", controlspec = controlspec.new(0, 1.2, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) set_p("feedback", x) end}
-  params:add{type = "control", id = "global_q", name = "Global Q", controlspec = controlspec.new(0.5, 80.0, 'exp', 0, 1.0), formatter=function(p) return string.format("%.1f", p:get()) end, action = function(x) set_p("global_q", x) end}
-  params:add{type = "control", id = "system_dirt", name = "System Dirt", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.05), formatter=fmt_percent, action = function(x) set_p("system_dirt", x) end}
+  params:add{type = "control", id = "global_q", name = "Global Q", controlspec = controlspec.new(0.5, 80.0, 'exp', 0, 12.8), formatter=function(p) return string.format("%.1f", p:get()) end, action = function(x) set_p("global_q", x) end}
+  params:add{type = "control", id = "system_dirt", name = "System Dirt", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.03), formatter=fmt_percent, action = function(x) set_p("system_dirt", x) end}
   
   params:add{type = "control", id = "main_mon", name = "Main Monitor", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.833), formatter = fmt_db, action = function(x) set_p("main_mon", x) end}
   
@@ -356,67 +357,67 @@ function init()
   params:add{type = "option", id = "noise_type", name = "Noise Type", options = {"Pink", "White", "Crackle", "DigiRain", "Lorenz", "Grit"}, action = function(x) engine.noise_type(x-1) end}
 
   params:add_group("TAPE VERB", 3)
-  params:add{type = "control", id = "reverb_mix", name = "Reverb Mix", controlspec = controlspec.new(0, 1, 'lin', 0.001, 1.0), formatter=fmt_percent, action = function(x) set_p("reverb_mix", x) end}
-  params:add{type = "control", id = "reverb_time", name = "Reverb Decay", controlspec = controlspec.new(0.1, 60.0, 'exp', 0.1, 1.5, "s"), formatter=fmt_sec, action = function(x) set_p("reverb_time", x) end}
-  params:add{type = "control", id = "reverb_damp", name = "Reverb Damp", controlspec = controlspec.new(100, 20000, 'exp', 10, 10000, "Hz"), formatter=fmt_hz, action = function(x) set_p("reverb_damp", x) end}
+  params:add{type = "control", id = "reverb_mix", name = "Reverb Mix", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.20), formatter=fmt_percent, action = function(x) set_p("reverb_mix", x) end}
+  params:add{type = "control", id = "reverb_time", name = "Reverb Decay", controlspec = controlspec.new(0.1, 60.0, 'exp', 0.1, 4.2, "s"), formatter=fmt_sec, action = function(x) set_p("reverb_time", x) end}
+  params:add{type = "control", id = "reverb_damp", name = "Reverb Damp", controlspec = controlspec.new(100, 20000, 'exp', 10, 4600, "Hz"), formatter=fmt_hz, action = function(x) set_p("reverb_damp", x) end}
   
   params:add_group("MASTER PROCESS", 6)
   params:add{type = "control", id = "bus_thresh", name = "Comp Thresh", controlspec = controlspec.new(-60.0, 0.0, 'lin', 0.1, -12.0, "dB"), formatter=fmt_raw_db, action = function(x) set_p("bus_thresh", x) end}
-  params:add{type = "control", id = "bus_ratio", name = "Comp Ratio", controlspec = controlspec.new(1.0, 20.0, 'lin', 0.1, 2.0), formatter=fmt_ratio, action = function(x) set_p("bus_ratio", x) end}
-  params:add{type = "control", id = "bus_drive", name = "Comp Drive", controlspec = controlspec.new(0.0, 24.0, 'lin', 0.1, 0.0, "dB"), formatter=fmt_raw_db, action = function(x) set_p("bus_drive", x) end}
+  params:add{type = "control", id = "bus_ratio", name = "Comp Ratio", controlspec = controlspec.new(1.0, 20.0, 'lin', 0.1, 2.2), formatter=fmt_ratio, action = function(x) set_p("bus_ratio", x) end}
+  params:add{type = "control", id = "bus_drive", name = "Comp Drive", controlspec = controlspec.new(0.0, 24.0, 'lin', 0.1, 1.0, "dB"), formatter=fmt_raw_db, action = function(x) set_p("bus_drive", x) end}
   params:add{type = "option", id = "bass_focus", name = "Bass Focus", options = {"OFF", "50Hz", "100Hz", "200Hz"}, default = 1, action = function(x) engine.bass_focus(x-1); update_str("bass_focus") end}
-  params:add{type = "control", id = "limiter_ceil", name = "Limiter Ceil", controlspec = controlspec.new(-6.0, 0.0, 'lin', 0.1, 0.0, "dB"), formatter=fmt_raw_db, action = function(x) set_p("limiter_ceil", x) end}
+  params:add{type = "control", id = "limiter_ceil", name = "Limiter Ceil", controlspec = controlspec.new(-6.0, 0.0, 'lin', 0.1, -0.1, "dB"), formatter=fmt_raw_db, action = function(x) set_p("limiter_ceil", x) end}
   params:add{type = "control", id = "balance", name = "Master Balance", controlspec = controlspec.new(-1.0, 1.0, 'lin', 0.01, 0.0), formatter=function(p) return string.format("%.2f", p:get()) end, action = function(x) set_p("balance", x) end}
   
   params:add_group("PING GENERATOR", 10)
   params:add{type = "option", id = "ping_active", name = "Generator", options = {"Off", "On"}, default = 1, action = function(x) engine.ping_active(x-1) end}
   params:add{type = "option", id = "ping_mode", name = "Ping Mode", options = {"Internal (Free)", "Euclidean (Sync)"}, default = 1, action = function(x) engine.ping_mode(x-1) end}
   params:add{type = "control", id = "ping_amp", name = "Ping Level", controlspec = controlspec.new(0, 2.0, 'lin', 0.01, 1.0), formatter=fmt_percent, action = function(x) set_p("ping_amp", x) end}
-  params:add{type = "control", id = "ping_timbre", name = "Mix (Low/High)", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), formatter=fmt_percent, action = function(x) set_p("ping_timbre", x) end}
+  params:add{type = "control", id = "ping_timbre", name = "Mix (Low/High)", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.3), formatter=fmt_percent, action = function(x) set_p("ping_timbre", x) end}
   params:add{type = "control", id = "ping_jitter", name = "Jitter (Rhythm)", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), formatter=fmt_percent, action = function(x) set_p("ping_jitter", x) end}
   
   params:add{type = "control", id = "ping_rate", name = "Int Rate (Hz)", controlspec = controlspec.new(0.125, 20.0, 'exp', 0.01, 1.0, "Hz"), formatter=fmt_hz, action = function(x) set_p("ping_rate", x) end}
     
   params:add{type = "option", id = "ping_div", name = "Euc Division", options = {"1/1", "1/2", "1/4", "1/8", "1/16", "1/32", "1/64", "1/128", "1/256"}, default = 3, action=function() update_str("ping_div") end}
-  params:add{type = "number", id = "ping_steps", name = "Euc Steps", min = 1, max = 32, default = 16, action = function(x) update_ping_pattern() end}
-  params:add{type = "number", id = "ping_hits", name = "Euc Hits", min = 0, max = 32, default = 4, action = function(x) update_ping_pattern() end}
+  params:add{type = "number", id = "ping_steps", name = "Euc Steps", min = 1, max = 32, default = 8, action = function(x) update_ping_pattern() end}
+  params:add{type = "number", id = "ping_hits", name = "Euc Hits", min = 0, max = 32, default = 5, action = function(x) update_ping_pattern() end}
   params:add{type = "trigger", id = "ping_manual", name = "Manual Trigger", action = function() engine.ping_manual(1) end}
 
   params:add_group("RING MODULATOR", 5)
   params:add{type = "control", id = "rm_drive", name = "RM Drive", controlspec = controlspec.new(0, 24.0, 'lin', 0.1, 6.0, "dB"), formatter=fmt_raw_db, action = function(x) set_p("rm_drive", x) end}
-  params:add{type = "control", id = "rm_freq", name = "Carrier Freq", controlspec = controlspec.new(0.1, 4000.0, 'exp', 0.1, 100.0, "Hz"), formatter=fmt_hz, action = function(x) set_p("rm_freq", x) end}
+  params:add{type = "control", id = "rm_freq", name = "Carrier Freq", controlspec = controlspec.new(0.1, 4000.0, 'exp', 0.1, 5.6, "Hz"), formatter=fmt_hz, action = function(x) set_p("rm_freq", x) end}
   params:add{type = "option", id = "rm_wave", name = "Carrier Wave", options = {"Sine", "Square"}, default = 1, action = function(x) engine.rm_wave(x-1) end}
-  params:add{type = "control", id = "rm_mix", name = "Dry/Wet Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), formatter=fmt_percent, action = function(x) set_p("rm_mix", x) end}
-  params:add{type = "control", id = "rm_instability", name = "Instability", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), formatter=fmt_percent, action = function(x) set_p("rm_instability", x) end}
+  params:add{type = "control", id = "rm_mix", name = "Dry/Wet Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.02), formatter=fmt_percent, action = function(x) set_p("rm_mix", x) end}
+  params:add{type = "control", id = "rm_instability", name = "Instability", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.08), formatter=fmt_percent, action = function(x) set_p("rm_instability", x) end}
 
   params:add_group("FILTER BANK", 9)
-  params:add{type = "control", id = "filter_mix", name = "Filter Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 1.0), formatter=fmt_percent, action = function(x) set_p("filter_mix", x) end}
-  params:add{type = "control", id = "pre_hpf", name = "Low Cut (HPF)", controlspec = controlspec.new(20, 999, 'exp', 0, 20, "Hz"), formatter=fmt_hz, action = function(x) set_p("pre_hpf", x) end}
-  params:add{type = "control", id = "pre_lpf", name = "High Cut (LPF)", controlspec = controlspec.new(150, 20000, 'exp', 0, 20000, "Hz"), formatter=fmt_hz, action = function(x) set_p("pre_lpf", x) end}
-  params:add{type = "control", id = "stabilizer", name = "Stabilizer", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.5), formatter=fmt_percent, action = function(x) set_p("stabilizer", x) end}
+  params:add{type = "control", id = "filter_mix", name = "Filter Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.8), formatter=fmt_percent, action = function(x) set_p("filter_mix", x) end}
+  params:add{type = "control", id = "pre_hpf", name = "Low Cut (HPF)", controlspec = controlspec.new(20, 999, 'exp', 0, 32, "Hz"), formatter=fmt_hz, action = function(x) set_p("pre_hpf", x) end}
+  params:add{type = "control", id = "pre_lpf", name = "High Cut (LPF)", controlspec = controlspec.new(150, 20000, 'exp', 0, 16890, "Hz"), formatter=fmt_hz, action = function(x) set_p("pre_lpf", x) end}
+  params:add{type = "control", id = "stabilizer", name = "Stabilizer", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.6), formatter=fmt_percent, action = function(x) set_p("stabilizer", x) end}
   params:add{type = "control", id = "crossfeed", name = "Cross Feed", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.25), formatter=fmt_percent, action = function(x) set_p("crossfeed", x) end}
-  params:add{type = "control", id = "spread", name = "Spread (Odd/Even)", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.75), formatter=fmt_percent, action = function(x) set_p("spread", x) end}
-  params:add{type = "control", id = "swirl_depth", name = "Swirl Depth", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.0), formatter=fmt_percent, action = function(x) set_p("swirl_depth", x) end}
-  params:add{type = "control", id = "swirl_rate", name = "Swirl Rate", controlspec = controlspec.new(0.01, 15.0, 'exp', 0.01, 0.01, "Hz"), formatter=function(p) return string.format("%.2fHz", p:get()) end, action = function(x) set_p("swirl_rate", x) end}
-  params:add{type = "control", id = "filter_drift", name = "Filter Drift", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) set_p("filter_drift", x) end}
+  params:add{type = "control", id = "spread", name = "Spread (Odd/Even)", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.50), formatter=fmt_percent, action = function(x) set_p("spread", x) end}
+  params:add{type = "control", id = "swirl_depth", name = "Swirl Depth", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.1), formatter=fmt_percent, action = function(x) set_p("swirl_depth", x) end}
+  params:add{type = "control", id = "swirl_rate", name = "Swirl Rate", controlspec = controlspec.new(0.01, 15.0, 'exp', 0.01, 0.03, "Hz"), formatter=function(p) return string.format("%.2fHz", p:get()) end, action = function(x) set_p("swirl_rate", x) end}
+  params:add{type = "control", id = "filter_drift", name = "Filter Drift", controlspec = controlspec.new(0, 1, 'lin', 0.001, 0.07), formatter=fmt_percent, action = function(x) set_p("filter_drift", x) end}
 
   params:add_group("LFO MODULATION", 3)
-  params:add{type = "control", id = "lfo_depth", name = "Global Intensity", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), formatter=fmt_percent, action = function(x) set_p("lfo_depth", x) end}
-  params:add{type = "control", id = "lfo_rate", name = "Global Rate", controlspec = controlspec.new(0.01, 2.0, 'exp', 0.01, 0.1, "Hz"), formatter=fmt_hz, action = function(x) set_p("lfo_rate", x) end}
+  params:add{type = "control", id = "lfo_depth", name = "Global Intensity", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.03), formatter=fmt_percent, action = function(x) set_p("lfo_depth", x) end}
+  params:add{type = "control", id = "lfo_rate", name = "Global Rate", controlspec = controlspec.new(0.01, 2.0, 'exp', 0.01, 0.08, "Hz"), formatter=fmt_hz, action = function(x) set_p("lfo_rate", x) end}
   params:add{type = "control", id = "lfo_min_db", name = "LFO Target DB", controlspec = controlspec.new(-90, 0, 'lin', 1, -60, "dB"), formatter=fmt_raw_db, action = function(x) set_p("lfo_min_db", x) end}
 
   params:add_group("MAIN TAPE ECHO", 7)
-  params:add{type = "control", id = "tape_mix", name = "Tape Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 1.0), formatter=fmt_percent, action = function(x) set_p("tape_mix", x) end}
-  params:add{type = "control", id = "tape_time", name = "Time", controlspec = controlspec.new(0, 2.0, 'lin', 0.01, 0.0, "s"), formatter=fmt_sec, action = function(x) set_p("tape_time", x) end}
-  params:add{type = "control", id = "tape_fb", name = "Feedback", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.0), formatter=fmt_percent, action = function(x) set_p("tape_fb", x) end}
+  params:add{type = "control", id = "tape_mix", name = "Tape Mix", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.25), formatter=fmt_percent, action = function(x) set_p("tape_mix", x) end}
+  params:add{type = "control", id = "tape_time", name = "Time", controlspec = controlspec.new(0, 2.0, 'lin', 0.01, 0.34, "s"), formatter=fmt_sec, action = function(x) set_p("tape_time", x) end}
+  params:add{type = "control", id = "tape_fb", name = "Feedback", controlspec = controlspec.new(0, 1.0, 'lin', 0.01, 0.4), formatter=fmt_percent, action = function(x) set_p("tape_fb", x) end}
   params:add{type = "control", id = "tape_sat", name = "Saturation", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.3), formatter=fmt_percent, action = function(x) set_p("tape_sat", x) end}
   params:add{type = "control", id = "tape_wow", name = "Wow (Slow)", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.11), formatter=fmt_percent, action = function(x) set_p("tape_wow", x) end}
   params:add{type = "control", id = "tape_flutter", name = "Flutter (Fast)", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.08), formatter=fmt_percent, action = function(x) set_p("tape_flutter", x) end}
-  params:add{type = "control", id = "tape_erosion", name = "Erosion", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.18), formatter=fmt_percent, action = function(x) set_p("tape_erosion", x) end}
+  params:add{type = "control", id = "tape_erosion", name = "Erosion", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.14), formatter=fmt_percent, action = function(x) set_p("tape_erosion", x) end}
   
   params:add_group("TIME ENGINES", 4)
   params:add{type = "control", id = "seq_rate_main", name = "Grid Seq Rate (Main)", controlspec = controlspec.new(-2.0, 2.0, 'lin', 0.01, 0.0), action=function(x) update_str("seq_rate_main") end}
-  params:add{type = "control", id = "preset_morph_main", name = "Grid Morph (Main)", controlspec = controlspec.new(0.01, 60.0, 'exp', 0.01, 2.0, "s"), formatter=fmt_sec, action=function(x) update_str("preset_morph_main") end}
+  params:add{type = "control", id = "preset_morph_main", name = "Grid Morph (Main)", controlspec = controlspec.new(0.01, 60.0, 'exp', 0.01, 2.8, "s"), formatter=fmt_sec, action=function(x) update_str("preset_morph_main") end}
   params:add{type = "control", id = "seq_rate_tape", name = "Grid Seq Rate (Tape)", controlspec = controlspec.new(-2.0, 2.0, 'lin', 0.01, 0.0), action=function(x) update_str("seq_rate_tape") end}
   params:add{type = "control", id = "preset_morph_tape", name = "Grid Morph (Tape)", controlspec = controlspec.new(0.01, 60.0, 'exp', 0.01, 2.0, "s"), formatter=fmt_sec, action=function(x) update_str("preset_morph_tape") end}
 
@@ -447,8 +448,8 @@ function init()
     
     params:add{type = "control", id = "l"..i.."_aux", name = "Aux Send", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].aux_send = x; Loopers.refresh(i, state) end}
     
-    params:add{type = "control", id = "l"..i.."_low", name = "Mixer Low", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0, "dB"), formatter=fmt_raw_db, action = function(x) state.tracks[i].l_low = x; Loopers.refresh(i, state) end}
-    params:add{type = "control", id = "l"..i.."_high", name = "Mixer High", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0, "dB"), formatter=fmt_raw_db, action = function(x) state.tracks[i].l_high = x; Loopers.refresh(i, state) end}
+    params:add{type = "control", id = "l"..i.."_low", name = "Mixer Low", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0.2, "dB"), formatter=fmt_raw_db, action = function(x) state.tracks[i].l_low = x; Loopers.refresh(i, state) end}
+    params:add{type = "control", id = "l"..i.."_high", name = "Mixer High", controlspec = controlspec.new(-18, 18, 'lin', 0.1, 0.3, "dB"), formatter=fmt_raw_db, action = function(x) state.tracks[i].l_high = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_filter", name = "Mixer Filter", controlspec = controlspec.new(0, 1, 'lin', 0.01, 0.5), formatter=fmt_percent, action = function(x) state.tracks[i].l_filter = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_pan", name = "Mixer Pan", controlspec = controlspec.new(-1, 1, 'lin', 0.01, 0), formatter=function(p) return string.format("%.2f", p:get()) end, action = function(x) state.tracks[i].l_pan = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_width", name = "Mixer Width", controlspec = controlspec.new(0, 2, 'lin', 0.01, 1), formatter=fmt_percent, action = function(x) state.tracks[i].l_width = x; Loopers.refresh(i, state) end}
