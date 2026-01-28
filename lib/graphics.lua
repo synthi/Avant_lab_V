@@ -1,6 +1,5 @@
--- Avant_lab_V lib/graphics.lua | Version 2052
--- UPDATE: Page 3 Labels (Noise Type String) + P6 Dynamic Title
--- MODIFIED v1.1: Page 7 Labels Fixed (Speed Top, Length Bottom)
+-- Avant_lab_V lib/graphics.lua | Version 1.4
+-- RELEASE v1.4: 16n Popup Support (Y=22, Black BG).
 
 local Graphics = {}
 local Scales = include('lib/scales')
@@ -37,6 +36,32 @@ local function draw_right_param_pair(label1, text1, label2, text2)
   screen.level(3); screen.move(col2_x, label_y); screen.text(label2)
   screen.level(15); screen.move(col2_x, value_y); screen.text(text2)
 end
+
+-- [NEW] 16n Popup Drawer
+local function draw_16n_popup(state)
+    if state.popup.active then
+        if util.time() > state.popup.deadline then
+            state.popup.active = false
+        else
+            -- Draw Black Box at Y=22 (Safe Zone)
+            screen.level(0)
+            screen.rect(10, 22, 108, 12)
+            screen.fill()
+            
+            -- Draw Border
+            screen.level(15)
+            screen.rect(10, 22, 108, 12)
+            screen.stroke()
+            
+            -- Draw Text
+            screen.move(64, 30)
+            screen.text_center(state.popup.name .. ": " .. state.popup.value)
+        end
+    end
+end
+
+-- ... (Rest of drawing functions UNCHANGED from v2052) ...
+-- (Providing full file content below for safety)
 
 local function draw_goniometer_block(state)
   local cx = 106
@@ -144,6 +169,9 @@ local function draw_mixer_view(state, shift)
      else screen.level(8); local spread = w * 2.5; screen.pixel(x-spread, wy); screen.fill(); screen.pixel(x+spread, wy); screen.fill() end
      screen.level(is_sel and 15 or 2); screen.font_size(8); screen.move(x+8, y_top); screen.text(i)
   end
+  
+  -- [NEW] Draw Popup on top
+  draw_16n_popup(state)
   screen.update()
 end
 
@@ -188,6 +216,8 @@ local function draw_master_view(state, shift)
    screen.level(bf > 1 and 15 or 6); screen.move(0, 60); screen.text(txt_bf[bf] or "OFF")
    if not shift then draw_right_param_pair("THRESH", get_txt("bus_thresh"), "RATIO", get_txt("bus_ratio"))
    else draw_right_param_pair("BAL", get_txt("balance"), "DRIVE", get_txt("bus_drive")) end
+   
+   draw_16n_popup(state)
    screen.update()
 end
 
@@ -218,6 +248,7 @@ function Graphics.draw(state)
         screen.move(123, y); screen.text_right(txt)
      end
      screen.level(3); screen.move(5, 60); screen.text("E2:Sel  K2:Load  K3:Save")
+     draw_16n_popup(state)
      screen.update(); return
   end
   
@@ -227,15 +258,11 @@ function Graphics.draw(state)
      local t = state.tracks[sel]
      screen.level(3); screen.move(55, 8); screen.text("DEGRADE"); screen.level(6); screen.move(55, 15); screen.text(string.format("%.2f", t.wow_macro or 0))
      if not shift then
-       -- [MOD v1.1] Top Left: SPEED (was Vol)
        local speed = t.speed or 1; local dir_sym = speed < 0 and "<<" or ">>"
        draw_left_e1("SPEED", string.format("%s %.2f", dir_sym, math.abs(speed)))
-       
-       -- [MOD v1.1] Bottom Left: LENGTH (was Speed)
        screen.level(3); screen.move(55, 53); screen.text("LENGTH"); 
        screen.level(15); screen.move(55, 60); 
        screen.text(string.format("%.2fs", params:get("l"..sel.."_length")))
-       
        screen.level(3); screen.move(95, 53); screen.text("DUB"); screen.level(15); screen.move(95, 60); screen.text(string.format("%.0f%%", (t.overdub or 0.5)*100))
      else
        local rec_db = t.rec_level or 0
@@ -261,12 +288,11 @@ function Graphics.draw(state)
              local pos = trk.play_pos or 0; local px = bar_x + (pos * bar_w)
              screen.level(15); screen.pixel(px, y_off - 4); screen.fill(); screen.pixel(px, y_off - 3); screen.fill()
         elseif trk.state == 1 then screen.level(2); screen.pixel(bar_x + (bar_w/2), y_off - 3); screen.fill() end
-        
-        -- [MOD v1.0] Display Fixed Length Parameter
         screen.level(3)
         local len_txt = string.format("%.1fs", params:get("l"..i.."_length"))
         screen.move(x_base + 12 + bar_w, y_off); screen.text_right(len_txt) 
      end
+     draw_16n_popup(state)
      screen.update(); return
   end
   
@@ -307,6 +333,7 @@ function Graphics.draw(state)
         screen.move(col2_x, 53); screen.level(3); screen.text("ROOT")
         screen.move(col2_x, 60); screen.level(15); screen.text(get_txt("root_note"))
      end
+     draw_16n_popup(state)
      screen.update(); return
   end
 
@@ -339,18 +366,16 @@ function Graphics.draw(state)
          screen.fill()
        end
     end
-    draw_vertical_divider(); draw_goniometer_block(state); draw_header_right("FILTER"); screen.update(); return
+    draw_vertical_divider(); draw_goniometer_block(state); draw_header_right("FILTER"); draw_16n_popup(state); screen.update(); return
   end
 
   if page == 3 then
     screen.clear()
-    -- [UPDATE v2052] Page 3 Remap
     if not shift then 
         draw_left_e1("REV", get_txt("reverb_mix")); 
         draw_right_param_pair("RMIX", get_txt("rm_mix"), "FREQ", string.format("%.1f", params:get("rm_freq")))
     else 
         draw_left_e1("DIRT", get_txt("system_dirt")); 
-        -- Noise String from params
         local noise_names = {"PINK", "WHITE", "CRACKLE", "RAIN", "LORENZ", "GRIT"}
         local n_idx = util.clamp(params:get("noise_type"), 1, #noise_names)
         draw_right_param_pair("TYPE", noise_names[n_idx], "NOISE", get_txt("noise_amp")) 
@@ -364,7 +389,7 @@ function Graphics.draw(state)
       if rm > 0.1 then y = y + (sin(nx * (rm_f * 0.1) + now * 10) * 5 * rm) end
       screen.pixel(area_x + x, y); screen.fill()
     end
-    draw_vertical_divider(); draw_goniometer_block(state); draw_header_right("MIX"); screen.update(); return
+    draw_vertical_divider(); draw_goniometer_block(state); draw_header_right("MIX"); draw_16n_popup(state); screen.update(); return
   end
 
   if page == 4 then
@@ -384,7 +409,7 @@ function Graphics.draw(state)
     draw_reel(left_x, reel_y, anim_phase_tape); draw_reel(right_x, reel_y, anim_phase_tape + 1.5)
     draw_tape_head(head_x, head_y); screen.level(4); screen.circle(left_x + 5, guide_y, 2); screen.fill() 
     screen.circle(right_x - 5, guide_y, 2); screen.fill() 
-    draw_vertical_divider(); draw_goniometer_block(state); draw_header_right("TAPE"); screen.update(); return
+    draw_vertical_divider(); draw_goniometer_block(state); draw_header_right("TAPE"); draw_16n_popup(state); screen.update(); return
   end
 
   if page == 5 then
@@ -477,7 +502,7 @@ function Graphics.draw(state)
           else screen.pixel(px_base, py_base); screen.fill() end
        end
     end
-    draw_vertical_divider(); draw_goniometer_block(state); draw_header_right("PING"); screen.update(); return
+    draw_vertical_divider(); draw_goniometer_block(state); draw_header_right("PING"); draw_16n_popup(state); screen.update(); return
   end
 
   if page == 6 then
@@ -530,6 +555,7 @@ function Graphics.draw(state)
     end
     draw_vertical_divider(); draw_goniometer_block(state); 
     screen.level(15); screen.move(128, 8); screen.text_right("TIME [" .. focus .. "] / PAN")
+    draw_16n_popup(state)
     screen.update(); return
   end
 end
