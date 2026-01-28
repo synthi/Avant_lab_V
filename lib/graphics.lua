@@ -55,7 +55,8 @@ local function draw_16n_popup(state)
             
             -- Draw Text
             screen.move(64, 19)
-            screen.text_center(state.popup.value)
+            screen.text_center(state.popup.name .. ": " .. state.popup.value)
+            --screen.text_center(state.popup.value)
         end
     end
 end
