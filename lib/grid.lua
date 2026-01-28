@@ -1,8 +1,7 @@
--- Avant_lab_V lib/grid.lua | Version 1.3
--- RELEASE v1.3:
--- 1. PRESETS: Fixed. Now saves audio snapshots to disk when saving a preset.
--- 2. AUTO-LOOP: Timeout mechanism prevents accidental second-pass resizing.
--- 3. SEQ: Full sequencer logic restored.
+-- Avant_lab_V lib/grid.lua | Version 1.6
+-- RELEASE v1.6: 
+-- 1. TRANSPORT: Removed Double-Click. Added Hold-Shift/Track-Select + Tap = STOP.
+-- 2. MICRO-LOOPS: Maintained.
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -26,7 +25,7 @@ function Grid.init(state, device)
   state.grid_keys_held = {} 
   for i=1, 4 do state.grid_keys_held[i] = {} end
   state.ribbon_memory = {}
-  state.seek_memory = {}
+  state.seek_memory = {} 
   state.preset_memory = nil
   state.seq_clicks = {0,0,0,0}
   state.stutter_memory = {} 
@@ -43,6 +42,9 @@ function Grid.init(state, device)
   state.page_press_time = 0
   state.grid_track_held = false
 end
+
+-- ... (LED BUF / DRAW FUNCTIONS UNCHANGED) ...
+-- (Providing full file content below for safety)
 
 local function led_buf(x, y, val)
    if x >=1 and x <=16 and y >=1 and y <=8 then
@@ -352,7 +354,64 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         if x >= 13 and x <= 16 then Loopers.clear(x - 12, state); return end
      end
      
-     -- FX
+     -- [v1.6] TRANSPORT: Dynamic Loop Logic + STOP Shortcut
+     if x >= 13 and x <= 16 then 
+        local trk = x - 12
+        if z == 1 then 
+           state.transport_press_time[trk] = util.time()
+           
+           -- [v1.6] STOP SHORTCUT: Shift (Page 7) OR Track Select (Row 5) + Transport
+           if state.k1_held or state.grid_shift_active or state.grid_track_held then 
+              state.tracks[trk].state = 5 -- Safe Stop
+              Loopers.refresh(trk, state) 
+              return -- Exit early
+           end
+           
+        elseif z == 0 then
+           local now = util.time()
+           local hold_time = now - state.transport_press_time[trk]
+           if state.k1_held or state.grid_shift_active or state.grid_track_held then return end 
+           
+           if hold_time > 1.0 then
+              Loopers.clear(trk, state)
+           else
+              -- [v1.6] NO DOUBLE CLICK LOGIC ANYMORE
+              local st = state.tracks[trk].state
+              local next_st = 3
+              
+              -- AUTO-LOOP TIMEOUT LOGIC
+              if state.tracks[trk].first_pass then
+                  local rec_dur = now - (state.tracks[trk].rec_start_time or now)
+                  local max_len = params:get("l"..trk.."_length")
+                  if rec_dur > max_len then
+                      state.tracks[trk].first_pass = false
+                  end
+              end
+
+              if st == 5 or st == 0 or st == 1 then 
+                 if st == 1 and engine.clear then 
+                     engine.clear(trk); engine["l"..trk.."_seek"](0) 
+                 end
+                 state.tracks[trk].first_pass = true
+                 state.tracks[trk].rec_start_time = util.time()
+                 next_st = 4 
+              elseif st == 4 and state.tracks[trk].first_pass then
+                 local dur = util.time() - (state.tracks[trk].rec_start_time or now)
+                 params:set("l"..trk.."_length", dur + 0.15)
+                 state.tracks[trk].first_pass = false
+                 next_st = 4 
+              elseif st == 3 then next_st = 4 
+              elseif st == 4 then next_st = 3 
+              elseif st == 2 then next_st = 3 end
+              
+              state.tracks[trk].state = next_st
+              Loopers.refresh(trk, state)
+           end
+        end
+        return
+     end
+     
+     -- FX (9-12)
      if x >= 9 and x <= 12 then 
         local fx_type = ""; if x == 9 then fx_type = "kill" elseif x == 10 then fx_type = "freeze" elseif x == 11 then fx_type = "warble" elseif x == 12 then fx_type = "brake" end
         if z == 1 then
@@ -391,7 +450,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         end
         return
      end
-
      if x <= 4 then 
         local slot = x; local r = rec_slots[slot]
         if z==1 then r.press_time = util.time()
@@ -417,8 +475,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         end
         return
      end
-
-     -- [FIX v1.2] PRESET AUDIO SAVING LOGIC
      if x >= 5 and x <= 8 then 
         local slot = x - 4
         if z == 1 then
@@ -430,7 +486,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                 local saved_tracks = {}
                 for i=1,4 do 
                     local t = state.tracks[i]
-                    -- [v1.2] Auto-Save Audio if Dirty
                     if t.rec_len and t.rec_len > 0.1 then
                         local name = _path.audio .. "Avant_lab_V/snapshots/preset_" .. slot .. "_trk_" .. i .. ".wav"
                         engine.buffer_write(i, name, t.rec_len)
@@ -451,7 +506,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                 local saved_tracks = {}
                 for i=1,4 do 
                     local t = state.tracks[i]
-                    -- [v1.2] Update snapshot if changed
                     if t.rec_len and t.rec_len > 0.1 then
                         local name = _path.audio .. "Avant_lab_V/snapshots/preset_" .. slot .. "_trk_" .. i .. ".wav"
                         engine.buffer_write(i, name, t.rec_len)
@@ -471,7 +525,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                  local target = presets_data[slot]
                  if target and target.tracks then
                     for i=1,4 do 
-                        -- [v1.2] Load Audio if present
                         if target.tracks[i] and target.tracks[i].file_path then
                             Loopers.load_file(i, target.tracks[i].file_path, state)
                         end
@@ -494,74 +547,23 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         end
         return
      end
-     
-     -- TRANSPORT
-     if x >= 13 and x <= 16 then 
-        local trk = x - 12
-        if z == 1 then 
-           state.transport_press_time[trk] = util.time()
-           if state.k1_held then 
-              state.tracks[trk].state = 5 -- Safe Stop (Feedback 1.0)
-              Loopers.refresh(trk, state) 
-           end
-        elseif z == 0 then
-           local now = util.time()
-           local hold_time = now - state.transport_press_time[trk]
-           if state.k1_held then return end 
-           
-           if hold_time > 1.0 then
-              Loopers.clear(trk, state)
-           else
-              local last_tap = state.transport_last_tap[trk] or 0
-              if (now - last_tap) < 0.3 then
-                 if state.tracks[trk].state == 4 then state.tracks[trk].state = 3 else state.tracks[trk].state = 5 end
-                 Loopers.refresh(trk, state)
-              else
-                 local st = state.tracks[trk].state
-                 local next_st = 3
-                 
-                 -- [v1.2] AUTO-LOOP TIMEOUT LOGIC
-                 if state.tracks[trk].first_pass then
-                     local rec_dur = now - (state.tracks[trk].rec_start_time or now)
-                     local max_len = params:get("l"..trk.."_length")
-                     if rec_dur > max_len then
-                         state.tracks[trk].first_pass = false
-                     end
-                 end
-
-                 if st == 5 or st == 0 or st == 1 then 
-                    if st == 1 and engine.clear then engine.clear(trk); engine["l"..trk.."_seek"](0) end
-                    state.tracks[trk].first_pass = true
-                    state.tracks[trk].rec_start_time = util.time()
-                    next_st = 4 
-                 elseif st == 4 and state.tracks[trk].first_pass then
-                    local dur = util.time() - (state.tracks[trk].rec_start_time or now)
-                    params:set("l"..trk.."_length", dur + 0.15)
-                    state.tracks[trk].first_pass = false
-                    next_st = 4 
-                 elseif st == 3 then next_st = 4 
-                 elseif st == 4 then next_st = 3 
-                 elseif st == 2 then next_st = 3 end
-                 
-                 state.tracks[trk].state = next_st
-                 Loopers.refresh(trk, state)
-              end
-              state.transport_last_tap[trk] = now
-           end
-        end
-        return
-     end
   end
   
-  -- TAPE TOUCH
+  -- [v1.6] TAPE TOUCH (Micro-Loops)
   if is_tape_view and y <= 4 then
      local trk = y
      if z == 1 then 
         state.grid_keys_held[trk][x] = true
+        
+        -- [v1.6] Set Track Held Flag for Controls.lua
+        state.grid_track_held = true
+        state.track_sel = trk -- Auto-select track on touch
+        
         clock.run(function()
            clock.sleep(0.06) 
            local count = 0; local min_x = 17; local max_x = 0
            for k, v in pairs(state.grid_keys_held[trk]) do if v then count = count + 1; if k < min_x then min_x = k end; if k > max_x then max_x = k end end end
+           
            if count == 1 then
               if state.grid_keys_held[trk][x] then 
                  local pos = (x-1)/15
@@ -581,6 +583,12 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         end)
      elseif z == 0 then 
         state.grid_keys_held[trk][x] = nil 
+        
+        -- [v1.6] Clear Track Held Flag if no keys held
+        local any_held = false
+        for k,v in pairs(state.grid_keys_held[trk]) do if v then any_held = true end end
+        if not any_held then state.grid_track_held = false end
+
         local count = 0; for k,v in pairs(state.grid_keys_held[trk]) do if v then count=count+1 end end
         if count == 0 and state.seek_memory[trk] then
             local t = state.tracks[trk]; local mem = state.seek_memory[trk]
