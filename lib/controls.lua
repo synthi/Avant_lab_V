@@ -1,5 +1,7 @@
--- Avant_lab_V lib/controls.lua | Version 1.2
--- RELEASE v1.2: Added Secondary Encoder Support (E4 Degrade).
+-- Avant_lab_V lib/controls.lua | Version 1.6
+-- RELEASE v1.6: 
+-- 1. WAVETABLE TUNING: Holding Track Select + E2 = Fine Tune Length.
+-- 2. MAPPING: While Holding Track -> E1=RecLvl, E2=FineLen, E3=Dub (Primary).
 
 local Controls = {}
 local fileselect = require 'fileselect'
@@ -175,16 +177,38 @@ Pages[6] = {
 -- PAGE 7 (LOOPERS)
 Pages[7] = {
    enc = function(n, d, s)
-      if (s.k1_held or s.mod_shift_16 or s.grid_shift_active or s.grid_track_held) then
+      -- [v1.6] SPLIT LOGIC: Track Hold vs Global Shift
+      
+      if s.grid_track_held then
+         -- [v1.6] WAVETABLE MODE (Track Button Held)
+         if n==1 then 
+            -- E1: Rec Level (Secondary)
+            local id = "l"..s.track_sel.."_rec_lvl"
+            params:delta(id, d)
+         elseif n==2 then 
+            -- E2: SUPER FINE LENGTH (Wavetable Tuning)
+            -- Delta is extremely small for pitch precision
+            local id = "l"..s.track_sel.."_length"
+            params:delta(id, d * 0.0002) 
+         elseif n==3 then 
+            -- E3: Overdub (Primary - Kept for performance)
+            Loopers.delta_param("overdub", d, s) 
+         end
+         
+      elseif (s.k1_held or s.mod_shift_16 or s.grid_shift_active) then
+         -- [v1.6] STANDARD SHIFT (Global Shift)
          if n==1 then 
             local id = "l"..s.track_sel.."_rec_lvl"
             params:delta(id, d)
          elseif n==2 then Loopers.delta_param("start", d, s)
          elseif n==3 then Loopers.delta_param("end", d, s) end
+         
       else
+         -- [v1.6] PRIMARY MODE (No Modifiers)
          if n==1 then 
             Loopers.delta_param("speed", d, s)
          elseif n==2 then 
+            -- Normal Length Slew
             local resolution = (math.abs(d) > 1) and 1.0 or 0.01
             local id = "l"..s.track_sel.."_length"
             params:delta(id, d * resolution)
@@ -272,7 +296,7 @@ Pages[10] = {
 
 function Controls.enc(n, d, state)
    if n == 4 then 
-      -- [v1.2] E4: Feedback (Normal) OR Degrade (if Track Held)
+      -- E4: Feedback (Normal) OR Degrade (if Track Held or Shift)
       if state.grid_track_held then
          Loopers.delta_param("wow", d, state)
       elseif state.k1_held or state.mod_shift_16 or state.grid_shift_active then 
