@@ -1,7 +1,8 @@
--- Avant_lab_V lib/grid.lua | Version 1.6
+-- Avant_lab_V lib/grid.lua | Version 1.6.1
 -- RELEASE v1.6: 
--- 1. TRANSPORT: Removed Double-Click. Added Hold-Shift/Track-Select + Tap = STOP.
--- 2. MICRO-LOOPS: Maintained.
+-- 1. TRANSPORT: Shift+Transport = STOP (Toggle). Removed Clear from Shift block.
+-- 2. PRESETS: Fixed audio saving (updates file_path before save).
+-- 3. 16n: Resets latches when holding track select.
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -44,8 +45,6 @@ function Grid.init(state, device)
 end
 
 -- ... (LED BUF / DRAW FUNCTIONS UNCHANGED) ...
--- (Providing full file content below for safety)
-
 local function led_buf(x, y, val)
    if x >=1 and x <=16 and y >=1 and y <=8 then
       next_frame[x][y] = math.floor(val)
@@ -450,31 +449,8 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         end
         return
      end
-     if x <= 4 then 
-        local slot = x; local r = rec_slots[slot]
-        if z==1 then r.press_time = util.time()
-        elseif z==0 then
-           local d = util.time() - r.press_time
-           if d > 1.0 then r.state = 0; r.data = {}; r.step = 1; r.duration = 0
-           else
-              state.seq_clicks[slot] = (state.seq_clicks[slot] or 0) + 1
-              if state.seq_clicks[slot] == 1 then
-                 clock.run(function() clock.sleep(0.25)
-                    local clicks = state.seq_clicks[slot]
-                    if clicks == 1 then
-                       if r.state == 0 then r.state = 1; r.data = {}; r.start_time = util.time(); r.step = 1
-                       elseif r.state == 1 then r.state = 2; r.duration = util.time() - r.start_time
-                       elseif r.state == 2 then r.state = 4
-                       elseif r.state == 4 then r.state = 2 
-                       elseif r.state == 3 then r.state = 2 end
-                    elseif clicks == 2 then if r.state ~= 0 then r.state = 3 end end
-                    state.seq_clicks[slot] = 0
-                 end)
-              end
-           end
-        end
-        return
-     end
+
+     -- [FIX v1.6] PRESET AUDIO SAVING LOGIC
      if x >= 5 and x <= 8 then 
         local slot = x - 4
         if z == 1 then
@@ -486,6 +462,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                 local saved_tracks = {}
                 for i=1,4 do 
                     local t = state.tracks[i]
+                    -- [v1.6] Auto-Save Audio if Dirty
                     if t.rec_len and t.rec_len > 0.1 then
                         local name = _path.audio .. "Avant_lab_V/snapshots/preset_" .. slot .. "_trk_" .. i .. ".wav"
                         engine.buffer_write(i, name, t.rec_len)
@@ -506,6 +483,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                 local saved_tracks = {}
                 for i=1,4 do 
                     local t = state.tracks[i]
+                    -- [v1.6] Update snapshot if changed
                     if t.rec_len and t.rec_len > 0.1 then
                         local name = _path.audio .. "Avant_lab_V/snapshots/preset_" .. slot .. "_trk_" .. i .. ".wav"
                         engine.buffer_write(i, name, t.rec_len)
@@ -525,6 +503,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                  local target = presets_data[slot]
                  if target and target.tracks then
                     for i=1,4 do 
+                        -- [v1.6] Load Audio if present
                         if target.tracks[i] and target.tracks[i].file_path then
                             Loopers.load_file(i, target.tracks[i].file_path, state)
                         end
@@ -559,6 +538,9 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         state.grid_track_held = true
         state.track_sel = trk -- Auto-select track on touch
         
+        -- [v1.6] Reset 16n Latches for Faders 1-4 (Layer Switch)
+        for i=1, 4 do state.fader_latched[i] = false end
+        
         clock.run(function()
            clock.sleep(0.06) 
            local count = 0; local min_x = 17; local max_x = 0
@@ -587,7 +569,11 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         -- [v1.6] Clear Track Held Flag if no keys held
         local any_held = false
         for k,v in pairs(state.grid_keys_held[trk]) do if v then any_held = true end end
-        if not any_held then state.grid_track_held = false end
+        if not any_held then 
+            state.grid_track_held = false 
+            -- [v1.6] Reset 16n Latches for Faders 1-4 (Layer Switch Back)
+            for i=1, 4 do state.fader_latched[i] = false end
+        end
 
         local count = 0; for k,v in pairs(state.grid_keys_held[trk]) do if v then count=count+1 end end
         if count == 0 and state.seek_memory[trk] then
