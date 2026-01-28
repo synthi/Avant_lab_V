@@ -464,7 +464,7 @@ function init()
     params:add{type = "control", id = "l"..i.."_dub", name = "Overdub", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 1.0), formatter=fmt_percent, action = function(x) state.tracks[i].overdub = x; Loopers.refresh(i, state) end}
     
     -- [v1.5] Length 120s
-    params:add{type = "control", id = "l"..i.."_length", name = "Length", controlspec = controlspec.new(0.001, 120.0, 'exp', 0.01, 120.0, "s"), action = function(x) Loopers.refresh(i, state) end}
+    params:add{type = "control", id = "l"..i.."_length", name = "Length", controlspec = controlspec.new(0.001, 120.0, 'exp', 0.0002, 120.0, "s"), action = function(x) Loopers.refresh(i, state) end}
 
     params:add{type = "control", id = "l"..i.."_deg", name = "Degrade", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].wow_macro = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_start", name = "Start Point", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].loop_start = x; Loopers.refresh(i, state) end}
@@ -475,7 +475,7 @@ function init()
         type = "control", 
         id = "l"..i.."_rec_lvl", 
         name = "Input Level", 
-        controlspec = controlspec.new(-60, 12, 'lin', 0.1, -6.0, "dB"), 
+        controlspec = controlspec.new(-60, 12, 'lin', 0.1, -3.0, "dB"), 
         formatter = fmt_raw_db,
         action = function(x) state.tracks[i].rec_level = x; Loopers.refresh(i, state) end
     }
