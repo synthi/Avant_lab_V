@@ -1,5 +1,5 @@
--- Avant_lab_V lib/globals.lua | Version 1.4
--- RELEASE v1.4: Added 'popup' and 'fader_latched' for 16n support.
+-- Avant_lab_V lib/globals.lua | Version 1.5
+-- RELEASE v1.5: Added 'hw_positions' for 16n ghost values.
 
 local Globals = {}
 
@@ -40,9 +40,13 @@ function Globals.new()
   s.heads = {gonio=1, filter=1, time=1}
   s.str_cache = {}
 
-  -- [NEW v1.4] 16n Support Structures
+  -- [v1.5] 16n Support Structures
   s.fader_latched = {}
-  for i=1, 16 do s.fader_latched[i] = false end
+  s.hw_positions = {} -- Stores physical fader positions (0.0-1.0)
+  for i=1, 16 do 
+      s.fader_latched[i] = false 
+      s.hw_positions[i] = -1 -- -1 means unknown/untouched
+  end
 
   s.popup = {
     active = false,
