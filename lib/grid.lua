@@ -1,7 +1,7 @@
--- Avant_lab_V lib/grid.lua | Version 1.6.1
--- RELEASE v1.6: 
--- 1. TRANSPORT: Shift+Transport = STOP (Toggle). Removed Clear from Shift block.
--- 2. PRESETS: Fixed audio saving (updates file_path before save).
+-- Avant_lab_V lib/grid.lua | Version 1.72
+-- RELEASE v1.72: 
+-- 1. TRANSPORT: Shift+Transport = TOGGLE PLAY/STOP (instead of Clear).
+-- 2. INTEGRITY: Retained +0.15 safety buffer for manual stop.
 -- 3. 16n: Resets latches when holding track select.
 
 local Grid = {}
@@ -350,18 +350,22 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
      if state.grid_shift_active and z == 1 then
         if x <= 4 then local r = rec_slots[x]; r.state = 0; r.data = {}; r.step = 1; r.duration = 0; return end
         if x >= 5 and x <= 8 then local slot = x - 4; presets_status[slot] = 0; presets_data[slot] = {}; if is_tape_view then state.tape_preset_selected = 0 else state.main_preset_selected = 0 end; return end
-        if x >= 13 and x <= 16 then Loopers.clear(x - 12, state); return end
+        -- [v1.72] Removed Clear from Shift + Transport logic here. Handled below.
      end
      
-     -- [v1.6] TRANSPORT: Dynamic Loop Logic + STOP Shortcut
+     -- [v1.72] TRANSPORT: Dynamic Loop Logic + STOP/PLAY TOGGLE
      if x >= 13 and x <= 16 then 
         local trk = x - 12
         if z == 1 then 
            state.transport_press_time[trk] = util.time()
            
-           -- [v1.6] STOP SHORTCUT: Shift (Page 7) OR Track Select (Row 5) + Transport
+           -- [v1.72] TOGGLE SHORTCUT: Shift (Page 7) OR Track Select (Row 5) + Transport
            if state.k1_held or state.grid_shift_active or state.grid_track_held then 
-              state.tracks[trk].state = 5 -- Safe Stop
+              local current = state.tracks[trk].state
+              local next_st = 5
+              if current == 5 then next_st = 3 end -- If Stopped -> Play, else -> Stop
+              
+              state.tracks[trk].state = next_st
               Loopers.refresh(trk, state) 
               return -- Exit early
            end
@@ -374,7 +378,6 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
            if hold_time > 1.0 then
               Loopers.clear(trk, state)
            else
-              -- [v1.6] NO DOUBLE CLICK LOGIC ANYMORE
               local st = state.tracks[trk].state
               local next_st = 3
               
@@ -396,6 +399,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                  next_st = 4 
               elseif st == 4 and state.tracks[trk].first_pass then
                  local dur = util.time() - (state.tracks[trk].rec_start_time or now)
+                 -- [v1.72] Safety Buffer +0.15 retained per user instruction
                  params:set("l"..trk.."_length", dur + 0.15)
                  state.tracks[trk].first_pass = false
                  next_st = 4 
