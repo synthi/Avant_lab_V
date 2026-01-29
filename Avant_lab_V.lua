@@ -1,9 +1,9 @@
--- Avant_lab_V.lua | Version 1.6.2
--- RELEASE v1.6: 
--- 1. 16n: Added Aux Layer (Hold Track Select -> Faders 1-4 = Aux).
--- 2. TUNING: Speed step 0.002, Dub max 1.1, Rec def -3dB.
--- restored defaults
--- refactored menus
+-- Avant_lab_V.lua | Version 1.7
+-- RELEASE v1.7: 
+-- 1. REPORTING: Listens to /rec_stop from SC to update exact recording length.
+-- 2. SYNC: Manual Length encoder changes now update the save state immediately.
+-- 3. 16n: Added Aux Layer (Hold Track Select -> Faders 1-4 = Aux).
+-- 4. TUNING: Speed step 0.002, Dub max 1.1, Rec def -3dB.
 
 engine.name = 'Avant_lab_V'
 
@@ -254,6 +254,17 @@ function osc.event(path, args, from)
     local idx = math.floor(args[1]); local dur = args[2]
     state.tracks[idx].rec_len = dur; Loopers.refresh(idx, state)
     print("Reel " .. idx .. " duration updated: " .. dur)
+  
+  -- [v1.7] REC STOP REPORTING
+  elseif path == "/rec_stop" then
+    local idx = math.floor(args[1])
+    local dur = args[2]
+    state.tracks[idx].rec_len = dur
+    state.tracks[idx].is_dirty = true
+    -- Update the parameter to match the physical recording length
+    params:set("l"..idx.."_length", dur)
+    print("Reel " .. idx .. " recorded. Length: " .. dur)
+
   elseif path == "/avant_lab_v/visuals" then
     if args and #args >= 23 then
         state.amp_l = args[1]; state.amp_r = args[2]; state.comp_gr = args[3]
@@ -430,7 +441,8 @@ function init()
     -- [v1.6] Dub max 1.1
     params:add{type = "control", id = "l"..i.."_dub", name = "Overdub", controlspec = controlspec.new(0, 1.1, 'lin', 0.001, 1.0), formatter=fmt_percent, action = function(x) state.tracks[i].overdub = x; Loopers.refresh(i, state) end}
     
-    params:add{type = "control", id = "l"..i.."_length", name = "Length", controlspec = controlspec.new(0.001, 120.0, 'exp', 0.01, 120.0, "s"), action = function(x) Loopers.refresh(i, state) end}
+    -- [v1.7] SYNC: Update rec_len immediately on manual change to keep save state in sync
+    params:add{type = "control", id = "l"..i.."_length", name = "Length", controlspec = controlspec.new(0.001, 120.0, 'exp', 0.01, 120.0, "s"), action = function(x) state.tracks[i].rec_len = x; Loopers.refresh(i, state) end}
 
     params:add{type = "control", id = "l"..i.."_deg", name = "Degrade", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].wow_macro = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_start", name = "Start Point", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].loop_start = x; Loopers.refresh(i, state) end}
@@ -545,7 +557,7 @@ function init()
      local status, err = pcall(function()
         clock.sleep(0.5) 
         state.loaded = true
-        print("Avant_lab_V: UI Loaded (v1.6).")
+        print("Avant_lab_V: UI Loaded (v1.7).")
      end)
      if not status then print("Avant_lab_V: Init Error: " .. err) end
   end)
