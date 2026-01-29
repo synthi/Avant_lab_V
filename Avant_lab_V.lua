@@ -1,10 +1,9 @@
--- Avant_lab_V.lua | Version 1.74
--- RELEASE v1.74: 
--- 1. REPORTING: Implements "Negative Pointer" strategy. 
---    Receives negative values in /visuals to update rec_len in real-time during First Pass.
--- 2. SYNC: Manual Length encoder changes update save state immediately and block OSC updates momentarily.
--- 3. 16n: Added Aux Layer (Hold Track Select -> Faders 1-4 = Aux).
--- 4. TUNING: Speed step 0.002, Dub max 1.11, Rec def -3dB.
+-- Avant_lab_V.lua | Version 1.76
+-- RELEASE v1.76: 
+-- 1. REPORTING: Receives Negative Pointer from SC for live recording status.
+--    IMPORTANT: Prioritizes Grid parameter (+0.15 safety) over raw Sweep duration for saving.
+--    This prevents clicks by ensuring saved audio includes the safety seamless buffer.
+-- 2. TUNING: Speed step 0.002, Dub max 1.11, Rec def -3dB.
 
 engine.name = 'Avant_lab_V'
 
@@ -256,7 +255,18 @@ function osc.event(path, args, from)
     state.tracks[idx].rec_len = dur; Loopers.refresh(idx, state)
     print("Reel " .. idx .. " duration updated: " .. dur)
   
-  -- [v1.74] NEGATIVE POINTER & VISUALS
+  -- [v1.73] REC STOP REPORTING (RETAINED FROM v1.73 but handled via Pointers now mostly)
+  elseif path == "/rec_stop" then
+    -- Legacy/Redundant fallback if SC trigger works
+    local idx = math.floor(args[1])
+    local dur = args[2]
+    -- [v1.76 Protection]: If coming from Trigger, accept it IF protection flag is false
+    if not state.tracks[idx].ignore_neg_pointer then
+        -- Careful! Trigger might send raw duration. Parameter is king for seamless saving.
+        -- We print but do NOT overwrite rec_len if manual mode active.
+        -- Ideally, the Negative Pointer logic handles the state during recording.
+    end
+
   elseif path == "/avant_lab_v/visuals" then
     if args and #args >= 23 then
         state.amp_l = args[1]; state.amp_r = args[2]; state.comp_gr = args[3]
@@ -265,27 +275,30 @@ function osc.event(path, args, from)
         state.gonio_history[h].w = util.clamp(math.abs(args[1]-args[2])*0.5 * (params:get("scope_zoom") or 4) * 20, 0, 20)
         state.heads.gonio = (h % state.GONIO_LEN) + 1
         
-        -- POINTER LOGIC (Negative = Recording Duration, Positive = Play Position)
+        -- [v1.76] NEGATIVE POINTER LOGIC (Real-time Recording Feedback)
         for i=1, 4 do 
             local raw_val = args[3+i]
             if raw_val < 0 then
-               -- Recording First Pass: Value is negative seconds
+               -- Recording (First Pass):
+               -- Update visual rec_len so Tape Library shows recording growing
                local t_len = math.abs(raw_val)
                state.tracks[i].rec_len = t_len
                state.tracks[i].is_dirty = true
-               state.tracks[i].play_pos = 1.0 -- Visual feedback: full bar
+               state.tracks[i].play_pos = 1.0 
                state.tracks[i].recording_active = true
             else
-               -- Playback / Overdub: Value is normalized 0-1
+               -- Playback (Normal):
                state.tracks[i].play_pos = util.clamp(raw_val, 0, 1)
                
-               -- Detect transition from Recording to Play (Auto-close or Stop)
                if state.tracks[i].recording_active then
-                  -- Update UI param to match the final length captured
-                  -- Only if not ignored (manual stop protection)
-                  if not state.tracks[i].ignore_neg_pointer then
-                      params:set("l"..i.."_length", state.tracks[i].rec_len)
-                  end
+                  -- [CRITICAL FIX v1.76]
+                  -- When recording ends (Pointer flips Neg -> Pos), we rely on the Grid 
+                  -- (via parameter 'l..i.._length') to determine the definitive save length
+                  -- which includes the safety +0.15s buffer.
+                  -- We fetch that definitive param value into our save state variable.
+                  local final_seamless_len = params:get("l"..i.."_length")
+                  state.tracks[i].rec_len = final_seamless_len
+                  
                   state.tracks[i].recording_active = false
                end
             end
@@ -581,7 +594,7 @@ function init()
      local status, err = pcall(function()
         clock.sleep(0.5) 
         state.loaded = true
-        print("Avant_lab_V: UI Loaded (v1.74).")
+        print("Avant_lab_V: UI Loaded (v1.76).")
      end)
      if not status then print("Avant_lab_V: Init Error: " .. err) end
   end)
