@@ -1,6 +1,8 @@
-// lib/Engine_Avant_lab_V.sc | Version 1.73
-// RELEASE v1.73:
-// 1. REPORTING: Fixed "Empty" bug by enforcing Audio Rate (K2A) for Sweep/Latch logic.
+// lib/Engine_Avant_lab_V.sc | Version 1.74
+// RELEASE v1.74:
+// 1. REPORTING: "Negative Pointer" Strategy. 
+//    During First Pass recording, 'pointers' sends negative time (seconds).
+//    During Playback/Overdub, 'pointers' sends positive normalized position (0-1).
 // 2. TUNING: fb_comp_curve starts at 1.00.
 // 3. INTEGRITY: Strict variable ordering.
 
@@ -296,7 +298,7 @@ Engine_Avant_lab_V : CroneEngine {
                 var deg_idx, fb_comp_curve, amp_det, dyn_stab, safe_fb, write_sig;
                 var tape_physics_cutoff, output_sig, sat_low, slew_val, c_lpf, c_hpf, f_lpf, f_hpf, eq_max_db;
                 var mid, side;
-                var rec_timer, trig_rec_stop, gate_ar, trig_ar;
+                var gate_ar, rec_timer, is_first_pass, ptr_norm, neg_time;
 
                 b_idx = synth_buffers[i];
                 bus_idx = track_buses[i];
@@ -304,20 +306,24 @@ Engine_Avant_lab_V : CroneEngine {
                 gate_rec = Lag.kr(l_rec_arr[i], 0.1); 
                 gate_play = Lag.kr(l_play_arr[i], 0.1); 
                 
-                // [REPORTING v1.73]
-                // 1. Convert Control Gate to Audio Rate for sample-accurate measurement
+                // [REPORTING v1.74] "Negative Pointer" Strategy
+                // 1. Convert Control Gate to Audio Rate for logic
                 gate_ar = K2A.ar(l_rec_arr[i]);
                 
-                // 2. Measure duration. Sweep runs when gate_ar is 1.0, pauses when 0.0
-                rec_timer = Sweep.ar(gate_ar, gate_ar);
+                // 2. Measure duration (resets on start, counts seconds)
+                rec_timer = Sweep.ar(gate_ar, 1.0);
                 
-                // 3. Detect falling edge (Stop) in Audio Domain
-                trig_ar = (1.0 - gate_ar) * Changed.ar(gate_ar);
+                // 3. Determine if we are in "First Pass" (Recording into empty space)
+                // Condition: Gate is Open AND Timer is less than the defined Loop Length
+                is_first_pass = (gate_ar > 0.5) * (rec_timer < l_length_arr[i]);
                 
-                // 4. Send report to Lua. 
-                // We use A2K for the trigger because SendReply expects KR trigger, 
-                // but we Latch the AR timer with the AR trigger to ensure we capture the exact value.
-                SendReply.kr(A2K.kr(trig_ar), '/rec_stop', [i + 1, Latch.ar(rec_timer, trig_ar)]);
+                // 4. Select what to send to Lua via 'pointers'
+                // If First Pass: Send Negative Time (e.g. -2.5s)
+                // If Loop/Play: Send Normalized Position (0.0 - 1.0)
+                ptr_norm = A2K.kr(ptr / loop_len_samps);
+                neg_time = A2K.kr(rec_timer.neg);
+                
+                pointers[i] = Select.kr(A2K.kr(is_first_pass), [ptr_norm, neg_time]);
 
                 brake_idx = (l_brake_arr[i] * 4).round;
                 brake_mod = Select.kr(brake_idx, [1.0, 1.0, 1.0, 0.5, 0.0]);
@@ -350,7 +356,7 @@ Engine_Avant_lab_V : CroneEngine {
                 end_pos = (Lag.kr(l_end_arr[i], 0.1) * loop_len_samps).max(start_pos + 10);
                 
                 ptr = Phasor.ar(l_seek_t_arr[i], final_rate * BufRateScale.kr(b_idx), start_pos, end_pos, l_seek_p_arr[i] * loop_len_samps);
-                pointers[i] = A2K.kr(ptr / loop_len_samps); 
+                // pointers[i] assignment moved up to Reporting block
                 
                 play_sig = BufRd.ar(2, b_idx, ptr, 1, 2);
                 
@@ -393,7 +399,7 @@ Engine_Avant_lab_V : CroneEngine {
                 
                 // [GAIN COMPENSATION]
                 deg_idx = (l_deg_arr[i] * 20).round;
-                // [v1.72] Updated table: First 3 values are 1.00 for Unity Gain
+                // [v1.74] Updated table: First 3 values are 1.00 for Unity Gain
                 fb_comp_curve = Select.kr(deg_idx, [
                     1.00, 1.00, 1.00, 1.05, 1.05, 
                     0.99, 0.97, 0.95, 0.93, 0.93,
