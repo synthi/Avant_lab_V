@@ -1,12 +1,8 @@
-// lib/Engine_Avant_lab_V.sc | Version 1.4
-// RELEASE v1.4 (SHIELD STABLE):
-// 1. ARCHITECTURE: Split-Synth (Voice + Loopers) connected via Buses.
-//    - Prevents memory corruption/stack overflow on Norns Shield.
-// 2. INTEGRITY: 1:1 Physics match with v1.1.1 (Wow 6%, S-Curve Sat, Dyn Filters).
-// 3. FIXES: 
-//    - 'final_signal' variable scope fixed in Loopers synth.
-//    - Strict variable declaration order (no 'unexpected VAR' errors).
-//    - Stop Logic: Feedback=1.0, Motor runs.
+// lib/Engine_Avant_lab_V.sc | Version 1.7
+// RELEASE v1.7:
+// 1. REPORTING: Fixed 'Sweep' logic. Now uses l_rec as rate to pause counting on stop.
+// 2. TUNING: Updated fb_comp_curve (Dub Table). First 3 values set to 1.00 for unity gain.
+// 3. INTEGRITY: 1:1 Physics match with v1.1.1.
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth_voice, <synth_loopers;
@@ -300,6 +296,7 @@ Engine_Avant_lab_V : CroneEngine {
                 var deg_idx, fb_comp_curve, amp_det, dyn_stab, safe_fb, write_sig;
                 var tape_physics_cutoff, output_sig, sat_low, slew_val, c_lpf, c_hpf, f_lpf, f_hpf, eq_max_db;
                 var mid, side;
+                var rec_timer, trig_rec_stop;
 
                 b_idx = synth_buffers[i];
                 bus_idx = track_buses[i];
@@ -307,6 +304,20 @@ Engine_Avant_lab_V : CroneEngine {
                 gate_rec = Lag.kr(l_rec_arr[i], 0.1); 
                 gate_play = Lag.kr(l_play_arr[i], 0.1); 
                 
+                // [REPORTING]
+                // Measure exact recording duration using Audio Rate precision.
+                // Uses l_rec_arr[i] as RATE: 1.0 = counting, 0.0 = paused.
+                // Resets when l_rec_arr[i] goes from 0 to 1 (implicit in Sweep behavior if trigger used, 
+                // but here we rely on the fact that we want to measure the active duration).
+                // Actually, Sweep(trig, rate). We need it to reset on start (trig) and run while high (rate).
+                rec_timer = Sweep.ar(l_rec_arr[i], l_rec_arr[i]);
+                
+                // Detect falling edge (1 -> 0) of the raw recording gate
+                trig_rec_stop = (1.0 - l_rec_arr[i]) * Changed.kr(l_rec_arr[i]);
+                
+                // Send report to Lua with exact duration captured at the moment of stop
+                SendReply.kr(trig_rec_stop, '/rec_stop', [i + 1, Latch.ar(rec_timer, trig_rec_stop)]);
+
                 brake_idx = (l_brake_arr[i] * 4).round;
                 brake_mod = Select.kr(brake_idx, [1.0, 1.0, 1.0, 0.5, 0.0]);
                 brake_mod = Lag3.kr(brake_mod, 0.3);
@@ -382,7 +393,7 @@ Engine_Avant_lab_V : CroneEngine {
                 // [GAIN COMPENSATION]
                 deg_idx = (l_deg_arr[i] * 20).round;
                 fb_comp_curve = Select.kr(deg_idx, [
-                    0.96, 0.98, 1.00, 1.05, 1.05, 
+                    1.00, 1.00, 1.00, 1.05, 1.05, 
                     0.99, 0.97, 0.95, 0.93, 0.93,
                     0.94, 0.88, 0.85, 0.83, 0.80,
                     0.74, 0.64, 0.59, 0.48, 0.39, 0.33
