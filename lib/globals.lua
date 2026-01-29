@@ -1,5 +1,8 @@
--- Avant_lab_V lib/globals.lua | Version 1.5
--- RELEASE v1.5: Added 'hw_positions' for 16n ghost values.
+-- Avant_lab_V lib/globals.lua | Version 1.76
+-- RELEASE v1.76: 
+-- 1. VISUALS: Initialized tape_filenames to nil instead of "[EMPTY]" 
+--    to fix the UI logic preventing "[RECORDED]" from appearing.
+-- 2. 16n: Added 'hw_positions' for 16n ghost values.
 
 local Globals = {}
 
@@ -66,7 +69,8 @@ function Globals.new()
   s.k2_kill_active = false
   
   s.tape_library_sel = 1
-  s.tape_filenames = {"[EMPTY]", "[EMPTY]", "[EMPTY]", "[EMPTY]"}
+  -- [v1.76] Changed from "[EMPTY]" to nil to fix UI priority bug
+  s.tape_filenames = {nil, nil, nil, nil}
   s.tape_msg_timers = {0, 0, 0, 0}
   s.file_selector_active = false
   
@@ -85,7 +89,9 @@ function Globals.new()
       wow_macro = 0.0, aux_send = 0.0, src_sel = 0,
       xfade = 0.05, brake_amt = 0.0, press_time_k2 = 0,
       is_dirty = false, file_path = nil,
-      l_low = 0.0, l_high = 0.0, l_filter = 0.5, l_pan = 0.0, l_width = 1.0
+      l_low = 0.0, l_high = 0.0, l_filter = 0.5, l_pan = 0.0, l_width = 1.0,
+      recording_active = false, -- Helper for Neg Pointer logic
+      ignore_neg_pointer = false -- Protection flag
     }
   end
   s.tape_rec_slots = {}; for i=1, 4 do s.tape_rec_slots[i] = {data={}, state=0, press_time=0, start_time=0, step=1, duration=0} end
