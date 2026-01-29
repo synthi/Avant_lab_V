@@ -139,7 +139,7 @@ function Loopers.delta_param(param_name, d, state)
      t.speed = util.clamp(s, -2.0, 2.0)
      
    elseif param_name == "overdub" then 
-      t.overdub = util.clamp((t.overdub or 1.0) + d*0.01, 0, 1)
+      t.overdub = util.clamp((t.overdub or 1.0) + d*0.01, 0, 1.11)
       params:set("l"..idx.."_dub", t.overdub)
    elseif param_name == "start" then local e = t.loop_end or 1; t.loop_start = util.clamp((t.loop_start or 0) + d*0.005, 0, e - 0.01)
    elseif param_name == "end" then local s = t.loop_start or 0; t.loop_end = util.clamp((t.loop_end or 1) + d*0.005, s + 0.01, 1.0)
