@@ -1,5 +1,5 @@
--- Avant_lab_V.lua | Version 1.72
--- RELEASE v1.72: 
+-- Avant_lab_V.lua | Version 1.73
+-- RELEASE v1.73: 
 -- 1. REPORTING: Listens to /rec_stop from SC to update exact recording length.
 -- 2. SYNC: Manual Length encoder changes now update the save state immediately.
 -- 3. 16n: Added Aux Layer (Hold Track Select -> Faders 1-4 = Aux).
@@ -255,7 +255,7 @@ function osc.event(path, args, from)
     state.tracks[idx].rec_len = dur; Loopers.refresh(idx, state)
     print("Reel " .. idx .. " duration updated: " .. dur)
   
-  -- [v1.72] REC STOP REPORTING
+  -- [v1.73] REC STOP REPORTING (CRITICAL FIX)
   elseif path == "/rec_stop" then
     local idx = math.floor(args[1])
     local dur = args[2]
@@ -441,7 +441,7 @@ function init()
     -- [v1.72] Dub max 1.11
     params:add{type = "control", id = "l"..i.."_dub", name = "Overdub", controlspec = controlspec.new(0, 1.11, 'lin', 0.001, 1.0), formatter=fmt_percent, action = function(x) state.tracks[i].overdub = x; Loopers.refresh(i, state) end}
     
-    -- [v1.72] SYNC: Update rec_len immediately on manual change to keep save state in sync
+    -- [v1.73] SYNC: Update rec_len immediately on manual change to keep save state in sync
     params:add{type = "control", id = "l"..i.."_length", name = "Length", controlspec = controlspec.new(0.001, 120.0, 'exp', 0.01, 120.0, "s"), action = function(x) state.tracks[i].rec_len = x; Loopers.refresh(i, state) end}
 
     params:add{type = "control", id = "l"..i.."_deg", name = "Degrade", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].wow_macro = x; Loopers.refresh(i, state) end}
@@ -557,7 +557,7 @@ function init()
      local status, err = pcall(function()
         clock.sleep(0.5) 
         state.loaded = true
-        print("Avant_lab_V: UI Loaded (v1.72).")
+        print("Avant_lab_V: UI Loaded (v1.73).")
      end)
      if not status then print("Avant_lab_V: Init Error: " .. err) end
   end)
