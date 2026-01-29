@@ -1,4 +1,4 @@
--- Avant_lab_V lib/graphics.lua | Version 1.6
+-- Avant_lab_V lib/graphics.lua | Version 1.72
 -- RELEASE v1.6: 
 -- 1. VISUALS: Dynamic labels for Wavetable Mode (Track Held).
 
