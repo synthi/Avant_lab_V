@@ -1,7 +1,8 @@
--- Avant_lab_V.lua | Version 1.73
--- RELEASE v1.73: 
--- 1. REPORTING: Listens to /rec_stop from SC to update exact recording length.
--- 2. SYNC: Manual Length encoder changes now update the save state immediately.
+-- Avant_lab_V.lua | Version 1.74
+-- RELEASE v1.74: 
+-- 1. REPORTING: Implements "Negative Pointer" strategy. 
+--    Receives negative values in /visuals to update rec_len in real-time during First Pass.
+-- 2. SYNC: Manual Length encoder changes update save state immediately and block OSC updates momentarily.
 -- 3. 16n: Added Aux Layer (Hold Track Select -> Faders 1-4 = Aux).
 -- 4. TUNING: Speed step 0.002, Dub max 1.11, Rec def -3dB.
 
@@ -255,16 +256,7 @@ function osc.event(path, args, from)
     state.tracks[idx].rec_len = dur; Loopers.refresh(idx, state)
     print("Reel " .. idx .. " duration updated: " .. dur)
   
-  -- [v1.73] REC STOP REPORTING (CRITICAL FIX)
-  elseif path == "/rec_stop" then
-    local idx = math.floor(args[1])
-    local dur = args[2]
-    state.tracks[idx].rec_len = dur
-    state.tracks[idx].is_dirty = true
-    -- Update the parameter to match the physical recording length
-    params:set("l"..idx.."_length", dur)
-    print("Reel " .. idx .. " recorded. Length: " .. dur)
-
+  -- [v1.74] NEGATIVE POINTER & VISUALS
   elseif path == "/avant_lab_v/visuals" then
     if args and #args >= 23 then
         state.amp_l = args[1]; state.amp_r = args[2]; state.comp_gr = args[3]
@@ -272,7 +264,33 @@ function osc.event(path, args, from)
         state.gonio_history[h].s = util.clamp((args[1]+args[2])*0.5 * (params:get("scope_zoom") or 4) * 10, 0, 22)
         state.gonio_history[h].w = util.clamp(math.abs(args[1]-args[2])*0.5 * (params:get("scope_zoom") or 4) * 20, 0, 20)
         state.heads.gonio = (h % state.GONIO_LEN) + 1
-        for i=1, 4 do local raw_pos = args[3+i]; state.tracks[i].play_pos = util.clamp(raw_pos, 0, 1) end
+        
+        -- POINTER LOGIC (Negative = Recording Duration, Positive = Play Position)
+        for i=1, 4 do 
+            local raw_val = args[3+i]
+            if raw_val < 0 then
+               -- Recording First Pass: Value is negative seconds
+               local t_len = math.abs(raw_val)
+               state.tracks[i].rec_len = t_len
+               state.tracks[i].is_dirty = true
+               state.tracks[i].play_pos = 1.0 -- Visual feedback: full bar
+               state.tracks[i].recording_active = true
+            else
+               -- Playback / Overdub: Value is normalized 0-1
+               state.tracks[i].play_pos = util.clamp(raw_val, 0, 1)
+               
+               -- Detect transition from Recording to Play (Auto-close or Stop)
+               if state.tracks[i].recording_active then
+                  -- Update UI param to match the final length captured
+                  -- Only if not ignored (manual stop protection)
+                  if not state.tracks[i].ignore_neg_pointer then
+                      params:set("l"..i.."_length", state.tracks[i].rec_len)
+                  end
+                  state.tracks[i].recording_active = false
+               end
+            end
+        end
+        
         local smooth_factor = 0.25
         for i=1, 16 do local target = args[7+i]; local current = state.band_levels[i] or 0; state.band_levels[i] = current + ((target - current) * smooth_factor) end
     end
@@ -441,8 +459,14 @@ function init()
     -- [v1.72] Dub max 1.11
     params:add{type = "control", id = "l"..i.."_dub", name = "Overdub", controlspec = controlspec.new(0, 1.11, 'lin', 0.001, 1.0), formatter=fmt_percent, action = function(x) state.tracks[i].overdub = x; Loopers.refresh(i, state) end}
     
-    -- [v1.73] SYNC: Update rec_len immediately on manual change to keep save state in sync
-    params:add{type = "control", id = "l"..i.."_length", name = "Length", controlspec = controlspec.new(0.001, 120.0, 'exp', 0.01, 120.0, "s"), action = function(x) state.tracks[i].rec_len = x; Loopers.refresh(i, state) end}
+    -- [v1.74] SYNC: Update rec_len immediately on manual change. 
+    -- Added protection against OSC lag overwriting manual changes.
+    params:add{type = "control", id = "l"..i.."_length", name = "Length", controlspec = controlspec.new(0.001, 120.0, 'exp', 0.01, 120.0, "s"), action = function(x) 
+        state.tracks[i].rec_len = x
+        state.tracks[i].ignore_neg_pointer = true 
+        clock.run(function() clock.sleep(0.2); state.tracks[i].ignore_neg_pointer = false end)
+        Loopers.refresh(i, state) 
+    end}
 
     params:add{type = "control", id = "l"..i.."_deg", name = "Degrade", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].wow_macro = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_start", name = "Start Point", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].loop_start = x; Loopers.refresh(i, state) end}
@@ -557,7 +581,7 @@ function init()
      local status, err = pcall(function()
         clock.sleep(0.5) 
         state.loaded = true
-        print("Avant_lab_V: UI Loaded (v1.73).")
+        print("Avant_lab_V: UI Loaded (v1.74).")
      end)
      if not status then print("Avant_lab_V: Init Error: " .. err) end
   end)
