@@ -1,5 +1,6 @@
--- Avant_lab_V lib/loopers.lua | Version 1.1
+-- Avant_lab_V lib/loopers.lua | Version 1.72
 -- UPDATE v1.1: Safe Stop Logic (Continuous Motor, Feedback 1.0).
+-- 1.72 max dub 111%
 
 local Loopers = {}
 local util = require 'util'
