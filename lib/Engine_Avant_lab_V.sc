@@ -1,8 +1,8 @@
-// lib/Engine_Avant_lab_V.sc | Version 1.7
-// RELEASE v1.7:
-// 1. REPORTING: Fixed 'Sweep' logic. Now uses l_rec as rate to pause counting on stop.
-// 2. TUNING: Updated fb_comp_curve (Dub Table). First 3 values set to 1.00 for unity gain.
-// 3. INTEGRITY: 1:1 Physics match with v1.1.1.
+// lib/Engine_Avant_lab_V.sc | Version 1.72
+// RELEASE v1.72:
+// 1. REPORTING: Uses Sweep.ar (Audio Rate) with l_rec as Rate to measure exact recording duration.
+// 2. TUNING: Updated fb_comp_curve (Dub Table). First 3 values set to 1.00.
+// 3. INTEGRITY: Strict variable ordering maintained.
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth_voice, <synth_loopers;
@@ -307,9 +307,6 @@ Engine_Avant_lab_V : CroneEngine {
                 // [REPORTING]
                 // Measure exact recording duration using Audio Rate precision.
                 // Uses l_rec_arr[i] as RATE: 1.0 = counting, 0.0 = paused.
-                // Resets when l_rec_arr[i] goes from 0 to 1 (implicit in Sweep behavior if trigger used, 
-                // but here we rely on the fact that we want to measure the active duration).
-                // Actually, Sweep(trig, rate). We need it to reset on start (trig) and run while high (rate).
                 rec_timer = Sweep.ar(l_rec_arr[i], l_rec_arr[i]);
                 
                 // Detect falling edge (1 -> 0) of the raw recording gate
@@ -392,6 +389,7 @@ Engine_Avant_lab_V : CroneEngine {
                 
                 // [GAIN COMPENSATION]
                 deg_idx = (l_deg_arr[i] * 20).round;
+                // [v1.72] Updated table: First 3 values are 1.00 for Unity Gain
                 fb_comp_curve = Select.kr(deg_idx, [
                     1.00, 1.00, 1.00, 1.05, 1.05, 
                     0.99, 0.97, 0.95, 0.93, 0.93,
