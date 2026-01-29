@@ -31,7 +31,7 @@ function Storage.save_data(state, pset_id)
    for i=1, 4 do
       local t = state.tracks[i]
       local len = t.rec_len or 0
-      if len > 0.1 then
+      if len > 0.002 then
          if t.is_dirty then
             local timestamp = os.date("%y%m%d%H%M%S")
             local snap_name = _path.audio .. "Avant_lab_V/snapshots/areel_" .. i .. "_" .. timestamp .. ".wav"
