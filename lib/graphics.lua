@@ -236,7 +236,7 @@ function Graphics.draw(state)
         if state.tape_msg_timers[i] > now then txt = "SAVED!"
         else
            if state.tape_filenames[i] then txt = state.tape_filenames[i]
-           elseif (state.tracks[i].rec_len or 0) > 0.1 then txt = "[RECORDED]"
+           elseif (state.tracks[i].rec_len or 0) > 0.002 then txt = "[RECORDED]"
            else txt = "[EMPTY]" end
         end
         if #txt > 20 then txt = "..." .. string.sub(txt, -18) end
