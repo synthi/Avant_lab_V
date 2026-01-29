@@ -1,9 +1,9 @@
--- Avant_lab_V.lua | Version 1.7
--- RELEASE v1.7: 
+-- Avant_lab_V.lua | Version 1.72
+-- RELEASE v1.72: 
 -- 1. REPORTING: Listens to /rec_stop from SC to update exact recording length.
 -- 2. SYNC: Manual Length encoder changes now update the save state immediately.
 -- 3. 16n: Added Aux Layer (Hold Track Select -> Faders 1-4 = Aux).
--- 4. TUNING: Speed step 0.002, Dub max 1.1, Rec def -3dB.
+-- 4. TUNING: Speed step 0.002, Dub max 1.11, Rec def -3dB.
 
 engine.name = 'Avant_lab_V'
 
@@ -255,7 +255,7 @@ function osc.event(path, args, from)
     state.tracks[idx].rec_len = dur; Loopers.refresh(idx, state)
     print("Reel " .. idx .. " duration updated: " .. dur)
   
-  -- [v1.7] REC STOP REPORTING
+  -- [v1.72] REC STOP REPORTING
   elseif path == "/rec_stop" then
     local idx = math.floor(args[1])
     local dur = args[2]
@@ -438,10 +438,10 @@ function init()
     -- [v1.6] Speed step 0.002
     params:add{type = "control", id = "l"..i.."_speed", name = "Speed", controlspec = controlspec.new(-2.0, 2.0, 'lin', 0.002, 1.0), formatter=function(p) return string.format("x%.2f", p:get()) end, action = function(x) state.tracks[i].speed = x; Loopers.refresh(i, state) end}
     params:add{type = "control", id = "l"..i.."_vol", name = "Volume", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.833), formatter=fmt_db, action = function(x) state.tracks[i].vol = x; Loopers.refresh(i, state) end}
-    -- [v1.6] Dub max 1.1
-    params:add{type = "control", id = "l"..i.."_dub", name = "Overdub", controlspec = controlspec.new(0, 1.1, 'lin', 0.001, 1.0), formatter=fmt_percent, action = function(x) state.tracks[i].overdub = x; Loopers.refresh(i, state) end}
+    -- [v1.72] Dub max 1.11
+    params:add{type = "control", id = "l"..i.."_dub", name = "Overdub", controlspec = controlspec.new(0, 1.11, 'lin', 0.001, 1.0), formatter=fmt_percent, action = function(x) state.tracks[i].overdub = x; Loopers.refresh(i, state) end}
     
-    -- [v1.7] SYNC: Update rec_len immediately on manual change to keep save state in sync
+    -- [v1.72] SYNC: Update rec_len immediately on manual change to keep save state in sync
     params:add{type = "control", id = "l"..i.."_length", name = "Length", controlspec = controlspec.new(0.001, 120.0, 'exp', 0.01, 120.0, "s"), action = function(x) state.tracks[i].rec_len = x; Loopers.refresh(i, state) end}
 
     params:add{type = "control", id = "l"..i.."_deg", name = "Degrade", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].wow_macro = x; Loopers.refresh(i, state) end}
@@ -557,7 +557,7 @@ function init()
      local status, err = pcall(function()
         clock.sleep(0.5) 
         state.loaded = true
-        print("Avant_lab_V: UI Loaded (v1.7).")
+        print("Avant_lab_V: UI Loaded (v1.72).")
      end)
      if not status then print("Avant_lab_V: Init Error: " .. err) end
   end)
