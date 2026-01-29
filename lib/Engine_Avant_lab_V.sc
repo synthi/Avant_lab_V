@@ -1,8 +1,8 @@
-// lib/Engine_Avant_lab_V.sc | Version 1.72
-// RELEASE v1.72:
-// 1. REPORTING: Uses Sweep.ar (Audio Rate) with l_rec as Rate to measure exact recording duration.
-// 2. TUNING: Updated fb_comp_curve (Dub Table). First 3 values set to 1.00.
-// 3. INTEGRITY: Strict variable ordering maintained.
+// lib/Engine_Avant_lab_V.sc | Version 1.73
+// RELEASE v1.73:
+// 1. REPORTING: Fixed "Empty" bug by enforcing Audio Rate (K2A) for Sweep/Latch logic.
+// 2. TUNING: fb_comp_curve starts at 1.00.
+// 3. INTEGRITY: Strict variable ordering.
 
 Engine_Avant_lab_V : CroneEngine {
     var <synth_voice, <synth_loopers;
@@ -296,7 +296,7 @@ Engine_Avant_lab_V : CroneEngine {
                 var deg_idx, fb_comp_curve, amp_det, dyn_stab, safe_fb, write_sig;
                 var tape_physics_cutoff, output_sig, sat_low, slew_val, c_lpf, c_hpf, f_lpf, f_hpf, eq_max_db;
                 var mid, side;
-                var rec_timer, trig_rec_stop;
+                var rec_timer, trig_rec_stop, gate_ar, trig_ar;
 
                 b_idx = synth_buffers[i];
                 bus_idx = track_buses[i];
@@ -304,16 +304,20 @@ Engine_Avant_lab_V : CroneEngine {
                 gate_rec = Lag.kr(l_rec_arr[i], 0.1); 
                 gate_play = Lag.kr(l_play_arr[i], 0.1); 
                 
-                // [REPORTING]
-                // Measure exact recording duration using Audio Rate precision.
-                // Uses l_rec_arr[i] as RATE: 1.0 = counting, 0.0 = paused.
-                rec_timer = Sweep.ar(l_rec_arr[i], l_rec_arr[i]);
+                // [REPORTING v1.73]
+                // 1. Convert Control Gate to Audio Rate for sample-accurate measurement
+                gate_ar = K2A.ar(l_rec_arr[i]);
                 
-                // Detect falling edge (1 -> 0) of the raw recording gate
-                trig_rec_stop = (1.0 - l_rec_arr[i]) * Changed.kr(l_rec_arr[i]);
+                // 2. Measure duration. Sweep runs when gate_ar is 1.0, pauses when 0.0
+                rec_timer = Sweep.ar(gate_ar, gate_ar);
                 
-                // Send report to Lua with exact duration captured at the moment of stop
-                SendReply.kr(trig_rec_stop, '/rec_stop', [i + 1, Latch.ar(rec_timer, trig_rec_stop)]);
+                // 3. Detect falling edge (Stop) in Audio Domain
+                trig_ar = (1.0 - gate_ar) * Changed.ar(gate_ar);
+                
+                // 4. Send report to Lua. 
+                // We use A2K for the trigger because SendReply expects KR trigger, 
+                // but we Latch the AR timer with the AR trigger to ensure we capture the exact value.
+                SendReply.kr(A2K.kr(trig_ar), '/rec_stop', [i + 1, Latch.ar(rec_timer, trig_ar)]);
 
                 brake_idx = (l_brake_arr[i] * 4).round;
                 brake_mod = Select.kr(brake_idx, [1.0, 1.0, 1.0, 0.5, 0.0]);
