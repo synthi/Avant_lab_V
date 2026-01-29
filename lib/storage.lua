@@ -1,4 +1,4 @@
--- Avant_lab_V lib/storage.lua | Version 2019
+-- Avant_lab_V lib/storage.lua | Version 1.72
 -- UPDATE: Complete Parameter Serialization (Fixed Degrade, Aux, Rec Level missing state)
 
 local Storage = {}
