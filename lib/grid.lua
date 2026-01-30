@@ -1,8 +1,12 @@
--- Avant_lab_V lib/grid.lua | Version 1.72
--- RELEASE v1.72: 
--- 1. TRANSPORT: Shift+Transport = TOGGLE PLAY/STOP (instead of Clear).
--- 2. INTEGRITY: Retained +0.15 safety buffer for manual stop.
--- 3. 16n: Resets latches when holding track select.
+-- Avant_lab_V lib/grid.lua | Version 1.78
+-- RELEASE v1.78: 
+-- 1. LOGIC: Fixed Accidental Loop Crop. 
+--    When starting from STOP, checks if track has audio (rec_len > 0.005).
+--    If yes -> Resume Mode (first_pass = false). Preserves original length.
+--    If no -> Create Mode (first_pass = true). Defines new length on release.
+-- 2. VISUALS: Fixed Ghost Pointer in Stop. 
+--    Removed logic that drew the playhead with dim brightness when paused.
+-- 3. INTEGRITY: Retained Toggle Play/Stop and +0.15s safety buffer.
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -44,7 +48,6 @@ function Grid.init(state, device)
   state.grid_track_held = false
 end
 
--- ... (LED BUF / DRAW FUNCTIONS UNCHANGED) ...
 local function led_buf(x, y, val)
    if x >=1 and x <=16 and y >=1 and y <=8 then
       next_frame[x][y] = math.floor(val)
@@ -69,14 +72,21 @@ local function draw_tape_view(state)
     local s = math.floor((track.loop_start or 0) * 15) + 1
     local e = math.floor((track.loop_end or 1) * 15) + 1
 
-    local has_audio = (track.state ~= 1)
-    local is_paused = (track.state == 5)
+    -- [v1.78] VISUAL FIX: Ghost Pointer
+    -- Only draw head if active (Rec, Play, Dub). If Paused (5) or Empty (1), head_max_b remains 0.
+    local has_audio = (track.state == 2 or track.state == 3 or track.state == 4)
     
     local head_pos = (track.play_pos or 0) * 15 + 1
     local head_max_b = 0
-    if has_audio then head_max_b = MAX_BRIGHT 
-    elseif is_paused then head_max_b = 3 
-    elseif track.state == 1 then head_pos = 1; head_max_b = DIM_BRIGHT end
+    
+    if has_audio then 
+        head_max_b = MAX_BRIGHT 
+    elseif track.state == 1 then 
+        -- If empty, show dim dot at start
+        head_pos = 1
+        head_max_b = DIM_BRIGHT 
+    end
+    -- [v1.78] Note: If track.state == 5 (STOP), head_max_b stays 0. No ghost pointer.
 
     for x=1, 16 do
        local b = bg_bright 
@@ -394,8 +404,16 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                  if st == 1 and engine.clear then 
                      engine.clear(trk); engine["l"..trk.."_seek"](0) 
                  end
-                 state.tracks[trk].first_pass = true
-                 state.tracks[trk].rec_start_time = util.time()
+                 
+                 -- [v1.78] LOGIC FIX: Accidental Crop Prevention
+                 -- Only mark as First Pass if track is truly empty/short
+                 if (state.tracks[trk].rec_len or 0) > 0.005 then
+                     state.tracks[trk].first_pass = false -- Resume Mode
+                 else
+                     state.tracks[trk].first_pass = true -- Create Mode
+                     state.tracks[trk].rec_start_time = util.time()
+                 end
+                 
                  next_st = 4 
               elseif st == 4 and state.tracks[trk].first_pass then
                  local dur = util.time() - (state.tracks[trk].rec_start_time or now)
