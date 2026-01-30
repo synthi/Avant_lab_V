@@ -1,12 +1,10 @@
--- Avant_lab_V lib/grid.lua | Version 1.78
--- RELEASE v1.78: 
--- 1. LOGIC: Fixed Accidental Loop Crop. 
---    When starting from STOP, checks if track has audio (rec_len > 0.005).
---    If yes -> Resume Mode (first_pass = false). Preserves original length.
---    If no -> Create Mode (first_pass = true). Defines new length on release.
--- 2. VISUALS: Fixed Ghost Pointer in Stop. 
---    Removed logic that drew the playhead with dim brightness when paused.
--- 3. INTEGRITY: Retained Toggle Play/Stop and +0.15s safety buffer.
+-- Avant_lab_V lib/grid.lua | Version 1.79
+-- RELEASE v1.79: 
+-- 1. LOGIC: Split Transport Logic. 
+--    - STOP (State 5) -> PLAY (State 3). Never Overdub. Sets first_pass=false to protect length.
+--    - EMPTY (State 0/1) -> OVERDUB (State 4). Sets first_pass=true to define length.
+-- 2. VISUALS: Ghost Pointer in Stop remains fixed (brightness 0).
+-- 3. INTEGRITY: Retained Toggle Play/Stop shortcut and +0.15s safety buffer.
 
 local Grid = {}
 local Loopers = include('lib/loopers')
@@ -86,7 +84,7 @@ local function draw_tape_view(state)
         head_pos = 1
         head_max_b = DIM_BRIGHT 
     end
-    -- [v1.78] Note: If track.state == 5 (STOP), head_max_b stays 0. No ghost pointer.
+    -- Note: If track.state == 5 (STOP), head_max_b stays 0. No ghost pointer.
 
     for x=1, 16 do
        local b = bg_bright 
@@ -363,7 +361,7 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
         -- [v1.72] Removed Clear from Shift + Transport logic here. Handled below.
      end
      
-     -- [v1.72] TRANSPORT: Dynamic Loop Logic + STOP/PLAY TOGGLE
+     -- [v1.79] TRANSPORT LOGIC (SPLIT STATES)
      if x >= 13 and x <= 16 then 
         local trk = x - 12
         if z == 1 then 
@@ -400,30 +398,36 @@ function Grid.key(x, y, z, state, engine, simulated_page, target_track)
                   end
               end
 
-              if st == 5 or st == 0 or st == 1 then 
+              -- [v1.79] STATE MACHINE SPLIT
+              if st == 0 or st == 1 then
+                 -- EMPTY: Start Recording (Create Loop)
                  if st == 1 and engine.clear then 
                      engine.clear(trk); engine["l"..trk.."_seek"](0) 
                  end
-                 
-                 -- [v1.78] LOGIC FIX: Accidental Crop Prevention
-                 -- Only mark as First Pass if track is truly empty/short
-                 if (state.tracks[trk].rec_len or 0) > 0.005 then
-                     state.tracks[trk].first_pass = false -- Resume Mode
-                 else
-                     state.tracks[trk].first_pass = true -- Create Mode
-                     state.tracks[trk].rec_start_time = util.time()
-                 end
-                 
+                 state.tracks[trk].first_pass = true
+                 state.tracks[trk].rec_start_time = util.time()
                  next_st = 4 
+              
+              elseif st == 5 then
+                 -- STOP: Resume Playback (Never Overdub)
+                 state.tracks[trk].first_pass = false -- Protect existing length
+                 next_st = 3
+                 
               elseif st == 4 and state.tracks[trk].first_pass then
+                 -- CLOSING FIRST PASS: Define Length
                  local dur = util.time() - (state.tracks[trk].rec_start_time or now)
-                 -- [v1.72] Safety Buffer +0.15 retained per user instruction
+                 -- [v1.72] Safety Buffer +0.15 retained
                  params:set("l"..trk.."_length", dur + 0.15)
                  state.tracks[trk].first_pass = false
                  next_st = 4 
-              elseif st == 3 then next_st = 4 
-              elseif st == 4 then next_st = 3 
-              elseif st == 2 then next_st = 3 end
+                 
+              elseif st == 3 then 
+                 next_st = 4 -- Play -> Dub
+              elseif st == 4 then 
+                 next_st = 3 -- Dub -> Play
+              elseif st == 2 then 
+                 next_st = 3 -- Rec -> Play (Legacy state)
+              end
               
               state.tracks[trk].state = next_st
               Loopers.refresh(trk, state)
