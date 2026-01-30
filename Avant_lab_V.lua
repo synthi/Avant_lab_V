@@ -1,9 +1,10 @@
--- Avant_lab_V.lua | Version 1.76
--- RELEASE v1.76: 
--- 1. REPORTING: Receives Negative Pointer from SC for live recording status.
---    IMPORTANT: Prioritizes Grid parameter (+0.15 safety) over raw Sweep duration for saving.
---    This prevents clicks by ensuring saved audio includes the safety seamless buffer.
--- 2. TUNING: Speed step 0.002, Dub max 1.11, Rec def -3dB.
+-- Avant_lab_V.lua | Version 1.77
+-- RELEASE v1.77: 
+-- 1. LOGIC: "State Gate" added to Length parameter. 
+--    rec_len (Save Truth) only updates if Track is NOT Empty (State != 1).
+--    This prevents "Recorded" status on boot or pre-configuration.
+-- 2. REPORTING: Negative Pointer strategy maintained for real-time recording feedback.
+-- 3. TUNING: Dub max 1.11, Speed step 0.002.
 
 engine.name = 'Avant_lab_V'
 
@@ -255,16 +256,13 @@ function osc.event(path, args, from)
     state.tracks[idx].rec_len = dur; Loopers.refresh(idx, state)
     print("Reel " .. idx .. " duration updated: " .. dur)
   
-  -- [v1.73] REC STOP REPORTING (RETAINED FROM v1.73 but handled via Pointers now mostly)
+  -- [v1.73] REC STOP REPORTING (RETAINED FROM v1.73)
   elseif path == "/rec_stop" then
-    -- Legacy/Redundant fallback if SC trigger works
     local idx = math.floor(args[1])
     local dur = args[2]
-    -- [v1.76 Protection]: If coming from Trigger, accept it IF protection flag is false
+    -- [v1.77] Protection: If coming from Trigger, accept it IF protection flag is false
     if not state.tracks[idx].ignore_neg_pointer then
-        -- Careful! Trigger might send raw duration. Parameter is king for seamless saving.
-        -- We print but do NOT overwrite rec_len if manual mode active.
-        -- Ideally, the Negative Pointer logic handles the state during recording.
+        -- This is a fallback/confirmation. The main logic is in Negative Pointer below.
     end
 
   elseif path == "/avant_lab_v/visuals" then
@@ -275,12 +273,11 @@ function osc.event(path, args, from)
         state.gonio_history[h].w = util.clamp(math.abs(args[1]-args[2])*0.5 * (params:get("scope_zoom") or 4) * 20, 0, 20)
         state.heads.gonio = (h % state.GONIO_LEN) + 1
         
-        -- [v1.76] NEGATIVE POINTER LOGIC (Real-time Recording Feedback)
+        -- [v1.77] NEGATIVE POINTER LOGIC (Real-time Recording Feedback)
         for i=1, 4 do 
             local raw_val = args[3+i]
             if raw_val < 0 then
                -- Recording (First Pass):
-               -- Update visual rec_len so Tape Library shows recording growing
                local t_len = math.abs(raw_val)
                state.tracks[i].rec_len = t_len
                state.tracks[i].is_dirty = true
@@ -291,14 +288,10 @@ function osc.event(path, args, from)
                state.tracks[i].play_pos = util.clamp(raw_val, 0, 1)
                
                if state.tracks[i].recording_active then
-                  -- [CRITICAL FIX v1.76]
-                  -- When recording ends (Pointer flips Neg -> Pos), we rely on the Grid 
-                  -- (via parameter 'l..i.._length') to determine the definitive save length
-                  -- which includes the safety +0.15s buffer.
-                  -- We fetch that definitive param value into our save state variable.
+                  -- [CRITICAL FIX v1.77]
+                  -- When recording ends, sync with parameter (which has the +0.15s safety)
                   local final_seamless_len = params:get("l"..i.."_length")
                   state.tracks[i].rec_len = final_seamless_len
-                  
                   state.tracks[i].recording_active = false
                end
             end
@@ -472,13 +465,17 @@ function init()
     -- [v1.72] Dub max 1.11
     params:add{type = "control", id = "l"..i.."_dub", name = "Overdub", controlspec = controlspec.new(0, 1.11, 'lin', 0.001, 1.0), formatter=fmt_percent, action = function(x) state.tracks[i].overdub = x; Loopers.refresh(i, state) end}
     
-    -- [v1.74] SYNC: Update rec_len immediately on manual change. 
-    -- Added protection against OSC lag overwriting manual changes.
+    -- [v1.77] SYNC: Logic Gate for Length Parameter
+    -- Only updates save state (rec_len) if system is loaded AND track is not empty.
     params:add{type = "control", id = "l"..i.."_length", name = "Length", controlspec = controlspec.new(0.001, 120.0, 'exp', 0.01, 120.0, "s"), action = function(x) 
-        state.tracks[i].rec_len = x
-        state.tracks[i].ignore_neg_pointer = true 
-        clock.run(function() clock.sleep(0.2); state.tracks[i].ignore_neg_pointer = false end)
-        Loopers.refresh(i, state) 
+        -- Always send to engine (for pre-config or modification)
+        Loopers.refresh(i, state)
+        -- Only update Save Truth if track has content
+        if state.loaded and state.tracks[i].state ~= 1 then
+            state.tracks[i].rec_len = x
+            state.tracks[i].ignore_neg_pointer = true 
+            clock.run(function() clock.sleep(0.2); state.tracks[i].ignore_neg_pointer = false end)
+        end
     end}
 
     params:add{type = "control", id = "l"..i.."_deg", name = "Degrade", controlspec = controlspec.new(0, 1.0, 'lin', 0.001, 0.0), formatter=fmt_percent, action = function(x) state.tracks[i].wow_macro = x; Loopers.refresh(i, state) end}
@@ -594,7 +591,7 @@ function init()
      local status, err = pcall(function()
         clock.sleep(0.5) 
         state.loaded = true
-        print("Avant_lab_V: UI Loaded (v1.76).")
+        print("Avant_lab_V: UI Loaded (v1.77).")
      end)
      if not status then print("Avant_lab_V: Init Error: " .. err) end
   end)
