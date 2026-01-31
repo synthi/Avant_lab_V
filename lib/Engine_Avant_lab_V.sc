@@ -1,8 +1,9 @@
-// lib/Engine_Avant_lab_V.sc | Version 1.75
-// RELEASE v1.75:
-// 1. CRITICAL FIX: Reordered DSP flow. 'ptr' (Phasor) is now calculated BEFORE the Reporting block to avoid "Receiver 'nil'" crash.
-// 2. REPORTING: "Negative Pointer" Strategy implemented with K2A/Sweep.ar for sample accuracy.
-//    - Sweep resets on Rec start (0->1) and pauses on Stop (1->0).
+// lib/Engine_Avant_lab_V.sc | Version 1.80
+// RELEASE v1.80:
+// 1. VISUAL FIX: Fixed "Vanishing Pointer" during Overdub.
+//    Logic updated to distinguish First Pass (Rec=1, Play=0) from Overdub (Rec=1, Play=1).
+//    Overdub now correctly sends positive position pointers instead of negative time.
+// 2. REPORTING: "Negative Pointer" Strategy maintained for First Pass.
 // 3. TUNING: fb_comp_curve starts at 1.00.
 
 Engine_Avant_lab_V : CroneEngine {
@@ -298,6 +299,7 @@ Engine_Avant_lab_V : CroneEngine {
                 var tape_physics_cutoff, output_sig, sat_low, slew_val, c_lpf, c_hpf, f_lpf, f_hpf, eq_max_db;
                 var mid, side;
                 var gate_ar, rec_timer, is_first_pass, ptr_norm, neg_time;
+                var gate_play_ar; // [v1.80] Added variable for Audio Rate Play Gate
 
                 b_idx = synth_buffers[i];
                 bus_idx = track_buses[i];
@@ -335,24 +337,23 @@ Engine_Avant_lab_V : CroneEngine {
                 start_pos = Lag.kr(l_start_arr[i], 0.1) * loop_len_samps;
                 end_pos = (Lag.kr(l_end_arr[i], 0.1) * loop_len_samps).max(start_pos + 10);
                 
-                // [PHASOR CALCULATION] - MUST BE BEFORE REPORTING
+                // [PHASOR CALCULATION]
                 ptr = Phasor.ar(l_seek_t_arr[i], final_rate * BufRateScale.kr(b_idx), start_pos, end_pos, l_seek_p_arr[i] * loop_len_samps);
                 
-                // [REPORTING v1.75] "Negative Pointer" Strategy
-                // 1. Convert Control Gate to Audio Rate for logic
+                // [REPORTING v1.80] "Negative Pointer" Strategy with Overdub Fix
+                // 1. Convert Control Gates to Audio Rate for logic
                 gate_ar = K2A.ar(l_rec_arr[i]);
+                gate_play_ar = K2A.ar(l_play_arr[i]); // [v1.80] Added
                 
                 // 2. Measure duration (resets on start, counts seconds)
-                // Sweep.ar(trig, rate): Trig=gate_ar (Reset on 0->1), Rate=gate_ar (Run on 1, Pause on 0)
                 rec_timer = Sweep.ar(gate_ar, gate_ar);
                 
-                // 3. Determine if we are in "First Pass" (Recording into empty space)
-                // Condition: Gate is Open AND Timer is less than the defined Loop Length
-                is_first_pass = (gate_ar > 0.5) * (rec_timer < l_length_arr[i]);
+                // 3. Determine if we are in "First Pass" (Create Mode)
+                // [v1.80 FIX]: First Pass = Recording (1) AND NOT Playing (0).
+                // This prevents Overdub (Rec=1, Play=1) from triggering the negative pointer.
+                is_first_pass = (gate_ar > 0.5) * (gate_play_ar < 0.5);
                 
                 // 4. Select what to send to Lua via 'pointers'
-                // If First Pass: Send Negative Time (e.g. -2.5s)
-                // If Loop/Play: Send Normalized Position (0.0 - 1.0)
                 ptr_norm = A2K.kr(ptr / loop_len_samps);
                 neg_time = A2K.kr(rec_timer.neg);
                 
@@ -399,7 +400,7 @@ Engine_Avant_lab_V : CroneEngine {
                 
                 // [GAIN COMPENSATION]
                 deg_idx = (l_deg_arr[i] * 20).round;
-                // [v1.75] Updated table: First 3 values are 1.00 for Unity Gain
+                // [v1.80] Updated table: First 3 values are 1.00 for Unity Gain
                 fb_comp_curve = Select.kr(deg_idx, [
                     1.00, 1.00, 1.00, 1.05, 1.05, 
                     0.99, 0.97, 0.95, 0.93, 0.93,
